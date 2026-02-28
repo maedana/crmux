@@ -51,17 +51,29 @@ pub fn draw(
 ) {
     let size = f.area();
 
-    // Top-level horizontal split: left (sidebar) | right (preview)
+    // Top-level vertical split: main content | footer
+    let v_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
+        .split(size);
+
+    // Main content: horizontal split left (sidebar) | right (preview)
     let h_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(30), Constraint::Min(0)])
-        .split(size);
+        .split(v_chunks[0]);
 
-    // Left panel: title + sessions list + instructions
+    // Left panel: sessions list
     draw_left_panel(f, sessions, h_chunks[0], selected_index);
 
     // Right panel: preview (optionally with input bar at bottom)
     draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1]);
+
+    // Footer: app name + instructions (full width)
+    let instructions = Paragraph::new("crmux | j/k:Nav Space:Mark Enter:Focus i:Input q:Quit")
+        .block(Block::default().borders(Borders::ALL))
+        .style(Style::default().fg(Color::Gray));
+    f.render_widget(instructions, v_chunks[1]);
 }
 
 /// Draw the right panel: preview(s) + optional input bar.
@@ -121,7 +133,7 @@ fn draw_preview_panes(
             Block::default()
                 .title("Preview")
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(Color::Gray)),
         );
         f.render_widget(preview, area);
         return;
@@ -137,7 +149,7 @@ fn draw_preview_panes(
             Block::default()
                 .title(format!("Preview: {name}"))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(Color::Gray)),
         );
         f.render_widget(preview, area);
         return;
@@ -165,35 +177,20 @@ fn draw_preview_panes(
             Block::default()
                 .title(format!("Preview: {name}"))
                 .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(Color::Gray)),
         );
         f.render_widget(preview, chunks[i]);
     }
 }
 
-/// Draw the left panel (session list + instructions).
+/// Draw the left panel (session list).
 fn draw_left_panel(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
     area: ratatui::layout::Rect,
     selected_index: usize,
 ) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(0),
-            Constraint::Length(3),
-        ])
-        .split(area);
-
-    // Sessions list
-    draw_sessions_list(f, sessions, chunks[0], selected_index);
-
-    // Instructions
-    let instructions = Paragraph::new("j/k:Nav Space:Mark Enter:Focus i:Input q:Quit")
-        .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(instructions, chunks[1]);
+    draw_sessions_list(f, sessions, area, selected_index);
 }
 
 /// Draw the list of Claude sessions.
