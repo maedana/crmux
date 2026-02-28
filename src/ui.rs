@@ -70,7 +70,7 @@ pub fn draw(
     draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1]);
 
     // Footer: app name + instructions (full width)
-    let instructions = Paragraph::new("crmux | j/k:Nav Space:Mark Enter:Focus i:Input q:Quit")
+    let instructions = Paragraph::new("crmux | j/k:Nav Space:Mark Enter:Switch Pane i:Input Mode q:Quit")
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);
