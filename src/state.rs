@@ -116,6 +116,15 @@ impl AppState {
             }
         }
 
+        // Sort by project_name for stable directory-based ordering
+        let selected_pid = self.selected_session().map(|s| s.pid);
+        self.sessions.sort_by(|a, b| a.project_name.cmp(&b.project_name));
+        if let Some(pid) = selected_pid
+            && let Some(pos) = self.sessions.iter().position(|s| s.pid == pid)
+        {
+            self.selected_index = pos;
+        }
+
         // Fix selected_index if out of bounds
         if !self.sessions.is_empty() && self.selected_index >= self.sessions.len() {
             self.selected_index = self.sessions.len() - 1;
