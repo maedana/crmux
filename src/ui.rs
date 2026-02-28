@@ -58,7 +58,7 @@ pub fn draw(
         .split(size);
 
     // Left panel: title + sessions list + instructions
-    draw_left_panel(f, sessions, h_chunks[0], selected_index, input_mode);
+    draw_left_panel(f, sessions, h_chunks[0], selected_index);
 
     // Right panel: preview (optionally with input bar at bottom)
     draw_right_panel(f, sessions, selected_index, preview_content, input_mode, input_buffer, h_chunks[1]);
@@ -140,7 +140,6 @@ fn draw_left_panel(
     sessions: &[ManagedSession],
     area: ratatui::layout::Rect,
     selected_index: usize,
-    input_mode: InputMode,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -161,17 +160,9 @@ fn draw_left_panel(
     draw_sessions_list(f, sessions, chunks[1], selected_index);
 
     // Instructions
-    let instructions_text = match input_mode {
-        InputMode::Normal => "j/k:Nav Enter:Focus i:Input q:Quit",
-        InputMode::Input => "C-Enter/C-d:Send Esc:Cancel",
-    };
-    let instructions_color = match input_mode {
-        InputMode::Normal => Color::DarkGray,
-        InputMode::Input => Color::Yellow,
-    };
-    let instructions = Paragraph::new(instructions_text)
+    let instructions = Paragraph::new("j/k:Nav Enter:Focus i:Input q:Quit")
         .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(instructions_color));
+        .style(Style::default().fg(Color::DarkGray));
     f.render_widget(instructions, chunks[2]);
 }
 
