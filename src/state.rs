@@ -36,6 +36,8 @@ pub struct AppState {
     pub selected_index: usize,
     /// PID of our own sidebar pane's process (excluded from aggregation).
     pub own_pid: Option<u32>,
+    /// Captured pane content (with ANSI escape sequences) for the selected session.
+    pub preview_content: String,
 }
 
 impl AppState {
@@ -44,6 +46,7 @@ impl AppState {
             sessions: Vec::new(),
             selected_index: 0,
             own_pid,
+            preview_content: String::new(),
         }
     }
 
@@ -338,6 +341,14 @@ mod tests {
     }
 
     // --- Pane ID update after join-pane ---
+
+    // --- Preview content ---
+
+    #[test]
+    fn test_preview_content_default_empty() {
+        let app = AppState::new(None);
+        assert!(app.preview_content.is_empty());
+    }
 
     #[test]
     fn test_pane_id_updated_on_sync() {

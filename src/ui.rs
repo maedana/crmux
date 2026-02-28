@@ -1,7 +1,8 @@
+use ansi_to_tui::IntoText as _;
 use ratatui::{
     layout::{Constraint, Direction, Layout},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph},
 };
 use std::time::Instant;
@@ -39,14 +40,49 @@ pub const fn state_label(state: &ClaudeState) -> &'static str {
     }
 }
 
-/// Draw the sidebar TUI.
-pub fn draw_sidebar(
+/// Draw the full TUI: session list (left) + preview pane (right).
+pub fn draw(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
     selected_index: usize,
+    preview_content: &str,
 ) {
     let size = f.area();
 
+    // Top-level horizontal split: left (sidebar) | right (preview)
+    let h_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(30), Constraint::Min(0)])
+        .split(size);
+
+    // Left panel: title + sessions list + instructions
+    draw_left_panel(f, sessions, h_chunks[0], selected_index);
+
+    // Right panel: preview
+    let preview_title = sessions
+        .get(selected_index)
+        .map_or_else(|| "Preview".to_string(), |s| format!("Preview: {}", s.project_name));
+
+    let preview_text = preview_content
+        .into_text()
+        .unwrap_or_else(|_| Text::raw(preview_content));
+
+    let preview = Paragraph::new(preview_text).block(
+        Block::default()
+            .title(preview_title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    f.render_widget(preview, h_chunks[1]);
+}
+
+/// Draw the left panel (title + session list + instructions).
+fn draw_left_panel(
+    f: &mut ratatui::Frame,
+    sessions: &[ManagedSession],
+    area: ratatui::layout::Rect,
+    selected_index: usize,
+) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -54,7 +90,7 @@ pub fn draw_sidebar(
             Constraint::Min(0),
             Constraint::Length(3),
         ])
-        .split(size);
+        .split(area);
 
     // Title
     let title = Paragraph::new("crmux")
@@ -210,5 +246,18 @@ mod tests {
         assert_eq!(state_label(&ClaudeState::Working), "Running");
         assert_eq!(state_label(&ClaudeState::WaitingForApproval), "Approval");
         assert_eq!(state_label(&ClaudeState::Idle), "Idle");
+    }
+
+    #[test]
+    fn test_ansi_to_text_plain() {
+        let text = "hello world".into_text().unwrap();
+        assert_eq!(text.lines.len(), 1);
+    }
+
+    #[test]
+    fn test_ansi_to_text_with_colors() {
+        let ansi = "\x1b[31mred\x1b[0m normal";
+        let text = ansi.into_text().unwrap();
+        assert!(!text.lines.is_empty());
     }
 }

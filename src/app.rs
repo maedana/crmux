@@ -43,7 +43,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_event_loop<B: ratatui::backend::Backend>(
+fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     monitor_state: &Arc<Mutex<MonitorState>>,
     own_pid: u32,
@@ -56,9 +56,22 @@ fn run_event_loop<B: ratatui::backend::Backend>(
             app_state.sync_with_monitor(&monitor);
         }
 
+        // Update preview content for the selected session
+        if let Some(pane_id) = app_state.selected_pane_id() {
+            app_state.preview_content =
+                tmux_claude_state::tmux::capture_pane_with_ansi(pane_id);
+        } else {
+            app_state.preview_content.clear();
+        }
+
         // Draw TUI
         terminal.draw(|f| {
-            ui::draw_sidebar(f, &app_state.sessions, app_state.selected_index);
+            ui::draw(
+                f,
+                &app_state.sessions,
+                app_state.selected_index,
+                &app_state.preview_content,
+            );
         })?;
 
         // Handle keyboard events (non-blocking with 200ms poll)
