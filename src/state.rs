@@ -15,6 +15,8 @@ pub struct ManagedSession {
     pub state: ClaudeState,
     /// When the current state was first observed.
     pub state_changed_at: Instant,
+    /// Whether this session is marked for multi-preview.
+    pub marked: bool,
 }
 
 /// Diff result from syncing with `MonitorState`.
@@ -45,8 +47,8 @@ pub struct AppState {
     pub selected_index: usize,
     /// PID of our own sidebar pane's process (excluded from aggregation).
     pub own_pid: Option<u32>,
-    /// Captured pane content (with ANSI escape sequences) for the selected session.
-    pub preview_content: String,
+    /// Preview contents: Vec of (`project_name`, `pane_content`) pairs.
+    pub preview_contents: Vec<(String, String)>,
     /// Current input mode.
     pub input_mode: InputMode,
     /// Buffer for text input in Input mode.
@@ -59,7 +61,7 @@ impl AppState {
             sessions: Vec::new(),
             selected_index: 0,
             own_pid,
-            preview_content: String::new(),
+            preview_contents: Vec::new(),
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
         }
@@ -109,6 +111,7 @@ impl AppState {
                     project_name: session.pane.project_name.clone(),
                     state: session.state.clone(),
                     state_changed_at: session.state_changed_at,
+                    marked: false,
                 });
             }
         }
@@ -151,6 +154,18 @@ impl AppState {
     /// Get the pane ID of the currently selected session.
     pub fn selected_pane_id(&self) -> Option<&str> {
         self.selected_session().map(|s| s.pane_id.as_str())
+    }
+
+    /// Toggle the mark on the currently selected session.
+    pub fn toggle_mark(&mut self) {
+        if let Some(session) = self.sessions.get_mut(self.selected_index) {
+            session.marked = !session.marked;
+        }
+    }
+
+    /// Return references to all marked sessions.
+    pub fn marked_sessions(&self) -> Vec<&ManagedSession> {
+        self.sessions.iter().filter(|s| s.marked).collect()
     }
 }
 
@@ -360,9 +375,9 @@ mod tests {
     // --- Preview content ---
 
     #[test]
-    fn test_preview_content_default_empty() {
+    fn test_preview_contents_default_empty() {
         let app = AppState::new(None);
-        assert!(app.preview_content.is_empty());
+        assert!(app.preview_contents.is_empty());
     }
 
     // --- Input mode ---
@@ -377,6 +392,105 @@ mod tests {
     fn test_initial_input_buffer_is_empty() {
         let app = AppState::new(None);
         assert!(app.input_buffer.is_empty());
+    }
+
+    // --- Mark operations ---
+
+    #[test]
+    fn test_new_session_is_not_marked() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert!(!app.sessions[0].marked);
+    }
+
+    #[test]
+    fn test_toggle_mark_marks_selected() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.toggle_mark();
+        assert!(app.sessions[0].marked);
+        assert!(!app.sessions[1].marked);
+    }
+
+    #[test]
+    fn test_toggle_mark_unmarks_marked() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.toggle_mark();
+        assert!(app.sessions[0].marked);
+        app.toggle_mark();
+        assert!(!app.sessions[0].marked);
+    }
+
+    #[test]
+    fn test_toggle_mark_on_empty_does_nothing() {
+        let mut app = AppState::new(None);
+        app.toggle_mark(); // should not panic
+    }
+
+    #[test]
+    fn test_marked_sessions_returns_marked_only() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+            make_session(300, "%3", "c", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.selected_index = 0;
+        app.toggle_mark();
+        app.selected_index = 2;
+        app.toggle_mark();
+
+        let marked = app.marked_sessions();
+        assert_eq!(marked.len(), 2);
+        assert_eq!(marked[0].pid, 100);
+        assert_eq!(marked[1].pid, 300);
+    }
+
+    #[test]
+    fn test_marked_sessions_empty_when_none_marked() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert!(app.marked_sessions().is_empty());
+    }
+
+    #[test]
+    fn test_mark_preserved_on_sync() {
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+        app.toggle_mark(); // mark session 100
+
+        // Re-sync with same sessions (state change)
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Working),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor2);
+
+        assert!(app.sessions[0].marked); // mark preserved
+        assert!(!app.sessions[1].marked);
     }
 
     #[test]

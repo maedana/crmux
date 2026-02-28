@@ -75,12 +75,28 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             app_state.sync_with_monitor(&monitor);
         }
 
-        // Update preview content for the selected session
-        if let Some(pane_id) = app_state.selected_pane_id() {
-            app_state.preview_content =
-                tmux_claude_state::tmux::capture_pane_with_ansi(pane_id);
+        // Update preview contents
+        let marked = app_state.marked_sessions();
+        if marked.is_empty() {
+            // No marked sessions: show the selected session
+            if let Some(session) = app_state.selected_session() {
+                let name = session.project_name.clone();
+                let pane_id = session.pane_id.clone();
+                let content = tmux_claude_state::tmux::capture_pane_with_ansi(&pane_id);
+                app_state.preview_contents = vec![(name, content)];
+            } else {
+                app_state.preview_contents.clear();
+            }
         } else {
-            app_state.preview_content.clear();
+            // Show all marked sessions
+            let pairs: Vec<(String, String)> = marked
+                .iter()
+                .map(|s| {
+                    let content = tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id);
+                    (s.project_name.clone(), content)
+                })
+                .collect();
+            app_state.preview_contents = pairs;
         }
 
         // Draw TUI
@@ -89,7 +105,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 f,
                 &app_state.sessions,
                 app_state.selected_index,
-                &app_state.preview_content,
+                &app_state.preview_contents,
                 app_state.input_mode,
                 &app_state.input_buffer,
             );

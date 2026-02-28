@@ -45,7 +45,7 @@ pub fn draw(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
     selected_index: usize,
-    preview_content: &str,
+    preview_contents: &[(String, String)],
     input_mode: InputMode,
     input_buffer: &str,
 ) {
@@ -61,23 +61,17 @@ pub fn draw(
     draw_left_panel(f, sessions, h_chunks[0], selected_index);
 
     // Right panel: preview (optionally with input bar at bottom)
-    draw_right_panel(f, sessions, selected_index, preview_content, input_mode, input_buffer, h_chunks[1]);
+    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1]);
 }
 
-/// Draw the right panel: preview + optional input bar.
+/// Draw the right panel: preview(s) + optional input bar.
 fn draw_right_panel(
     f: &mut ratatui::Frame,
-    sessions: &[ManagedSession],
-    selected_index: usize,
-    preview_content: &str,
+    preview_contents: &[(String, String)],
     input_mode: InputMode,
     input_buffer: &str,
     area: ratatui::layout::Rect,
 ) {
-    let preview_title = sessions
-        .get(selected_index)
-        .map_or_else(|| "Preview".to_string(), |s| format!("Preview: {}", s.project_name));
-
     if input_mode == InputMode::Input {
         // Count lines in input buffer to size the input bar (min 3, max 8)
         let line_count = input_buffer.chars().filter(|&c| c == '\n').count() + 1;
@@ -89,17 +83,8 @@ fn draw_right_panel(
             .constraints([Constraint::Min(0), Constraint::Length(input_height)])
             .split(area);
 
-        // Preview
-        let preview_text = preview_content
-            .into_text()
-            .unwrap_or_else(|_| Text::raw(preview_content));
-        let preview = Paragraph::new(preview_text).block(
-            Block::default()
-                .title(preview_title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        );
-        f.render_widget(preview, v_chunks[0]);
+        // Preview(s)
+        draw_preview_panes(f, preview_contents, v_chunks[0]);
 
         // Input bar
         let input_text = Text::raw(input_buffer);
@@ -120,17 +105,69 @@ fn draw_right_panel(
         let cursor_y = inner.y + input_buffer.chars().filter(|&c| c == '\n').count() as u16;
         f.set_cursor_position((cursor_x, cursor_y));
     } else {
-        // Normal mode: just preview
-        let preview_text = preview_content
-            .into_text()
-            .unwrap_or_else(|_| Text::raw(preview_content));
-        let preview = Paragraph::new(preview_text).block(
+        // Normal mode: just preview(s)
+        draw_preview_panes(f, preview_contents, area);
+    }
+}
+
+/// Draw one or more preview panes, splitting the area vertically.
+fn draw_preview_panes(
+    f: &mut ratatui::Frame,
+    preview_contents: &[(String, String)],
+    area: ratatui::layout::Rect,
+) {
+    if preview_contents.is_empty() {
+        let preview = Paragraph::new("No session selected").block(
             Block::default()
-                .title(preview_title)
+                .title("Preview")
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::DarkGray)),
         );
         f.render_widget(preview, area);
+        return;
+    }
+
+    if preview_contents.len() == 1 {
+        let (name, content) = &preview_contents[0];
+        let preview_text = content
+            .as_str()
+            .into_text()
+            .unwrap_or_else(|_| Text::raw(content.as_str()));
+        let preview = Paragraph::new(preview_text).block(
+            Block::default()
+                .title(format!("Preview: {name}"))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        f.render_widget(preview, area);
+        return;
+    }
+
+    // Multiple previews: split vertically
+    #[allow(clippy::cast_possible_truncation)]
+    let count = preview_contents.len() as u32;
+    let constraints: Vec<Constraint> = preview_contents
+        .iter()
+        .map(|_| Constraint::Ratio(1, count))
+        .collect();
+
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(area);
+
+    for (i, (name, content)) in preview_contents.iter().enumerate() {
+        let preview_text = content
+            .as_str()
+            .into_text()
+            .unwrap_or_else(|_| Text::raw(content.as_str()));
+        let preview = Paragraph::new(preview_text).block(
+            Block::default()
+                .title(format!("Preview: {name}"))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        f.render_widget(preview, chunks[i]);
     }
 }
 
@@ -160,7 +197,7 @@ fn draw_left_panel(
     draw_sessions_list(f, sessions, chunks[1], selected_index);
 
     // Instructions
-    let instructions = Paragraph::new("j/k:Nav Enter:Focus i:Input q:Quit")
+    let instructions = Paragraph::new("j/k:Nav Space:Mark Enter:Focus i:Input q:Quit")
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::DarkGray));
     f.render_widget(instructions, chunks[2]);
@@ -205,7 +242,9 @@ fn draw_sessions_list(
         let label = state_label(&session.state);
 
         let text_color = if is_selected { Color::Yellow } else { color };
+        let mark_indicator = if session.marked { "* " } else { "  " };
         let spans = vec![
+            Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled(
                 &session.project_name,
                 Style::default()

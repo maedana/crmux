@@ -34,6 +34,10 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
             state.select_prev();
             Action::Continue
         }
+        KeyCode::Char(' ') => {
+            state.toggle_mark();
+            Action::Continue
+        }
         KeyCode::Char('i') => {
             if state.selected_pane_id().is_some() {
                 state.input_mode = InputMode::Input;
@@ -122,6 +126,7 @@ mod tests {
             project_name: "test-project".to_string(),
             state: ClaudeState::Idle,
             state_changed_at: Instant::now(),
+            marked: false,
         });
         state
     }
@@ -181,6 +186,32 @@ mod tests {
     fn test_other_key_continues() {
         let mut state = AppState::new(None);
         let action = handle_key_event(&make_key_event(KeyCode::Char('x')), &mut state);
+        assert_eq!(action, Action::Continue);
+    }
+
+    // --- Space key toggles mark ---
+
+    #[test]
+    fn test_space_toggles_mark() {
+        let mut state = make_state_with_session();
+        assert!(!state.sessions[0].marked);
+        let action = handle_key_event(&make_key_event(KeyCode::Char(' ')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(state.sessions[0].marked);
+    }
+
+    #[test]
+    fn test_space_unmarks_marked_session() {
+        let mut state = make_state_with_session();
+        state.sessions[0].marked = true;
+        handle_key_event(&make_key_event(KeyCode::Char(' ')), &mut state);
+        assert!(!state.sessions[0].marked);
+    }
+
+    #[test]
+    fn test_space_on_empty_sessions() {
+        let mut state = AppState::new(None);
+        let action = handle_key_event(&make_key_event(KeyCode::Char(' ')), &mut state);
         assert_eq!(action, Action::Continue);
     }
 
