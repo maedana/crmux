@@ -3,7 +3,7 @@ name = "crmux"
 version = "0.1.0"
 edition = "2024"
 authors = ["maedana"]
-description = "A tmux-based Claude Code session aggregator and manager"
+description = "A TUI viewer for Claude Code sessions in tmux"
 license = "MIT"
 
 [[bin]]
@@ -13,10 +13,7 @@ path = "src/main.rs"
 [dependencies]
 ratatui = "0.28"
 crossterm = "0.28"
-clap = { version = "4.0", features = ["derive"] }
 tmux-claude-state = "0.1.1"
-
-[dev-dependencies]
 
 [lints.clippy]
 all = "warn"
