@@ -8,7 +8,7 @@ use ratatui::{
 use std::time::Instant;
 use tmux_claude_state::claude_state::ClaudeState;
 
-use crate::state::ManagedSession;
+use crate::state::{InputMode, ManagedSession};
 
 /// Format elapsed time since an `Instant` into a human-readable string.
 pub fn format_elapsed(since: Instant) -> String {
@@ -46,6 +46,8 @@ pub fn draw(
     sessions: &[ManagedSession],
     selected_index: usize,
     preview_content: &str,
+    input_mode: InputMode,
+    input_buffer: &str,
 ) {
     let size = f.area();
 
@@ -56,24 +58,80 @@ pub fn draw(
         .split(size);
 
     // Left panel: title + sessions list + instructions
-    draw_left_panel(f, sessions, h_chunks[0], selected_index);
+    draw_left_panel(f, sessions, h_chunks[0], selected_index, input_mode);
 
-    // Right panel: preview
+    // Right panel: preview (optionally with input bar at bottom)
+    draw_right_panel(f, sessions, selected_index, preview_content, input_mode, input_buffer, h_chunks[1]);
+}
+
+/// Draw the right panel: preview + optional input bar.
+fn draw_right_panel(
+    f: &mut ratatui::Frame,
+    sessions: &[ManagedSession],
+    selected_index: usize,
+    preview_content: &str,
+    input_mode: InputMode,
+    input_buffer: &str,
+    area: ratatui::layout::Rect,
+) {
     let preview_title = sessions
         .get(selected_index)
         .map_or_else(|| "Preview".to_string(), |s| format!("Preview: {}", s.project_name));
 
-    let preview_text = preview_content
-        .into_text()
-        .unwrap_or_else(|_| Text::raw(preview_content));
+    if input_mode == InputMode::Input {
+        // Count lines in input buffer to size the input bar (min 3, max 8)
+        let line_count = input_buffer.chars().filter(|&c| c == '\n').count() + 1;
+        #[allow(clippy::cast_possible_truncation)]
+        let input_height = (line_count as u16 + 2).clamp(3, 8); // +2 for borders
 
-    let preview = Paragraph::new(preview_text).block(
-        Block::default()
-            .title(preview_title)
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::DarkGray)),
-    );
-    f.render_widget(preview, h_chunks[1]);
+        let v_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(input_height)])
+            .split(area);
+
+        // Preview
+        let preview_text = preview_content
+            .into_text()
+            .unwrap_or_else(|_| Text::raw(preview_content));
+        let preview = Paragraph::new(preview_text).block(
+            Block::default()
+                .title(preview_title)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        f.render_widget(preview, v_chunks[0]);
+
+        // Input bar
+        let input_text = Text::raw(input_buffer);
+        let input_bar = Paragraph::new(input_text).block(
+            Block::default()
+                .title("Input (C-Enter/C-d: send | Esc: cancel)")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Yellow)),
+        );
+        f.render_widget(input_bar, v_chunks[1]);
+
+        // Place cursor at end of input
+        let inner = Block::default().borders(Borders::ALL).inner(v_chunks[1]);
+        let last_line = input_buffer.lines().last().unwrap_or("");
+        #[allow(clippy::cast_possible_truncation)]
+        let cursor_x = inner.x + last_line.len() as u16;
+        #[allow(clippy::cast_possible_truncation)]
+        let cursor_y = inner.y + input_buffer.chars().filter(|&c| c == '\n').count() as u16;
+        f.set_cursor_position((cursor_x, cursor_y));
+    } else {
+        // Normal mode: just preview
+        let preview_text = preview_content
+            .into_text()
+            .unwrap_or_else(|_| Text::raw(preview_content));
+        let preview = Paragraph::new(preview_text).block(
+            Block::default()
+                .title(preview_title)
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
+        f.render_widget(preview, area);
+    }
 }
 
 /// Draw the left panel (title + session list + instructions).
@@ -82,6 +140,7 @@ fn draw_left_panel(
     sessions: &[ManagedSession],
     area: ratatui::layout::Rect,
     selected_index: usize,
+    input_mode: InputMode,
 ) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -102,9 +161,17 @@ fn draw_left_panel(
     draw_sessions_list(f, sessions, chunks[1], selected_index);
 
     // Instructions
-    let instructions = Paragraph::new("j/k: Navigate | Enter: Focus | q: Quit")
+    let instructions_text = match input_mode {
+        InputMode::Normal => "j/k:Nav Enter:Focus i:Input q:Quit",
+        InputMode::Input => "C-Enter/C-d:Send Esc:Cancel",
+    };
+    let instructions_color = match input_mode {
+        InputMode::Normal => Color::DarkGray,
+        InputMode::Input => Color::Yellow,
+    };
+    let instructions = Paragraph::new(instructions_text)
         .block(Block::default().borders(Borders::ALL))
-        .style(Style::default().fg(Color::DarkGray));
+        .style(Style::default().fg(instructions_color));
     f.render_widget(instructions, chunks[2]);
 }
 

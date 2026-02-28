@@ -28,6 +28,15 @@ pub struct SyncDiff {
     pub state_changed: Vec<u32>,
 }
 
+/// Input mode for the sidebar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputMode {
+    /// Normal navigation mode.
+    Normal,
+    /// Text input mode for sending keys to a session.
+    Input,
+}
+
 /// Application state for the sidebar.
 pub struct AppState {
     /// All managed sessions, ordered by discovery time.
@@ -38,6 +47,10 @@ pub struct AppState {
     pub own_pid: Option<u32>,
     /// Captured pane content (with ANSI escape sequences) for the selected session.
     pub preview_content: String,
+    /// Current input mode.
+    pub input_mode: InputMode,
+    /// Buffer for text input in Input mode.
+    pub input_buffer: String,
 }
 
 impl AppState {
@@ -47,6 +60,8 @@ impl AppState {
             selected_index: 0,
             own_pid,
             preview_content: String::new(),
+            input_mode: InputMode::Normal,
+            input_buffer: String::new(),
         }
     }
 
@@ -348,6 +363,20 @@ mod tests {
     fn test_preview_content_default_empty() {
         let app = AppState::new(None);
         assert!(app.preview_content.is_empty());
+    }
+
+    // --- Input mode ---
+
+    #[test]
+    fn test_initial_input_mode_is_normal() {
+        let app = AppState::new(None);
+        assert_eq!(app.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_initial_input_buffer_is_empty() {
+        let app = AppState::new(None);
+        assert!(app.input_buffer.is_empty());
     }
 
     #[test]
