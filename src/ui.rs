@@ -171,7 +171,7 @@ fn draw_preview_panes(
     }
 }
 
-/// Draw the left panel (title + session list + instructions).
+/// Draw the left panel (session list + instructions).
 fn draw_left_panel(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
@@ -181,26 +181,19 @@ fn draw_left_panel(
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
             Constraint::Min(0),
             Constraint::Length(3),
         ])
         .split(area);
 
-    // Title
-    let title = Paragraph::new("crmux")
-        .block(Block::default().title("Claude Sessions").borders(Borders::ALL))
-        .style(Style::default().fg(Color::Cyan));
-    f.render_widget(title, chunks[0]);
-
     // Sessions list
-    draw_sessions_list(f, sessions, chunks[1], selected_index);
+    draw_sessions_list(f, sessions, chunks[0], selected_index);
 
     // Instructions
     let instructions = Paragraph::new("j/k:Nav Space:Mark Enter:Focus i:Input q:Quit")
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::DarkGray));
-    f.render_widget(instructions, chunks[2]);
+    f.render_widget(instructions, chunks[1]);
 }
 
 /// Draw the list of Claude sessions.
