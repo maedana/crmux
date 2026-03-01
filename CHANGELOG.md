@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Pulse animation for WaitingForApproval (continuous) and stale Idle (5-15s window) sessions
+- Fixed poll interval to 50ms for smoother rendering
+- Add repository field to Cargo.toml for crates.io
+
 ## 0.1.0
 
 - Initial release
