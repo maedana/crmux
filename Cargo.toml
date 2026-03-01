@@ -5,6 +5,7 @@ edition = "2024"
 authors = ["maedana"]
 description = "A TUI viewer for Claude Code sessions in tmux"
 license = "MIT"
+repository = "https://github.com/maedana/crmux"
 
 [[bin]]
 name = "crmux"
