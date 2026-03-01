@@ -17,6 +17,8 @@ pub struct ManagedSession {
     pub state_changed_at: Instant,
     /// Whether this session is marked for multi-preview.
     pub marked: bool,
+    /// User-defined title label for this session.
+    pub title: Option<String>,
 }
 
 /// Diff result from syncing with `MonitorState`.
@@ -37,6 +39,8 @@ pub enum InputMode {
     Normal,
     /// Text input mode for sending keys to a session.
     Input,
+    /// Title input mode for setting session title label.
+    Title,
 }
 
 /// Application state for the sidebar.
@@ -112,6 +116,7 @@ impl AppState {
                     state: session.state.clone(),
                     state_changed_at: session.state_changed_at,
                     marked: false,
+                    title: None,
                 });
             }
         }
@@ -158,6 +163,11 @@ impl AppState {
     /// Get the currently selected session, if any.
     pub fn selected_session(&self) -> Option<&ManagedSession> {
         self.sessions.get(self.selected_index)
+    }
+
+    /// Get a mutable reference to the currently selected session.
+    pub fn selected_session_mut(&mut self) -> Option<&mut ManagedSession> {
+        self.sessions.get_mut(self.selected_index)
     }
 
     /// Get the pane ID of the currently selected session.
@@ -501,6 +511,58 @@ mod tests {
 
         assert!(app.sessions[0].marked); // mark preserved
         assert!(!app.sessions[1].marked);
+    }
+
+    // --- Title field ---
+
+    #[test]
+    fn test_new_session_has_no_title() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].title, None);
+    }
+
+    #[test]
+    fn test_title_preserved_on_sync() {
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+        app.sessions[0].title = Some("refactoring auth".to_string());
+
+        // Re-sync with state change
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor2);
+
+        assert_eq!(app.sessions[0].title, Some("refactoring auth".to_string()));
+    }
+
+    // --- selected_session_mut ---
+
+    #[test]
+    fn test_selected_session_mut() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.selected_session_mut().unwrap().title = Some("testing".to_string());
+        assert_eq!(app.sessions[0].title, Some("testing".to_string()));
+        assert_eq!(app.sessions[1].title, None);
+    }
+
+    #[test]
+    fn test_selected_session_mut_empty() {
+        let mut app = AppState::new(None);
+        assert!(app.selected_session_mut().is_none());
     }
 
     #[test]

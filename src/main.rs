@@ -14,6 +14,7 @@ Keybindings (Normal mode):
   Space          Mark/unmark session for multi-preview
   Enter          Switch tmux focus to the selected session's pane
   i              Enter input mode (type a prompt to send to the session)
+  e              Enter title mode (set a title for the session)
   q / Esc        Quit crmux
 
 Keybindings (Input mode):
@@ -21,6 +22,11 @@ Keybindings (Input mode):
   Ctrl+d         Same as Ctrl+Enter (universal fallback)
   Enter          Insert a newline in the input buffer
   Esc            Cancel input and return to normal mode
+  Backspace      Delete the last character
+
+Keybindings (Title mode):
+  Enter          Save the title and return to normal mode
+  Esc            Cancel and return to normal mode
   Backspace      Delete the last character")]
 struct Cli {}
 

@@ -14,6 +14,7 @@ const STALE_MIN_SECS: u64 = 5;
 const STALE_MAX_SECS: u64 = 15;
 
 const SELECTED_ICON: &str = "> ";
+const TITLE_COLOR: Color = Color::Rgb(180, 180, 180);
 
 /// Determine if a session should pulse based on its state and elapsed time.
 pub fn should_pulse(state: &ClaudeState, elapsed_secs: u64) -> bool {
@@ -84,6 +85,17 @@ pub const fn state_label(state: &ClaudeState) -> &'static str {
     }
 }
 
+/// Truncate a title string to `max_chars` characters, appending `…` if truncated.
+fn truncate_title(s: &str, max_chars: usize) -> String {
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        s.to_string()
+    } else {
+        let truncated: String = s.chars().take(max_chars - 1).collect();
+        format!("{truncated}…")
+    }
+}
+
 /// Draw the full TUI: session list (left) + preview pane (right).
 pub fn draw(
     f: &mut ratatui::Frame,
@@ -108,13 +120,18 @@ pub fn draw(
         .split(v_chunks[0]);
 
     // Left panel: sessions list
-    draw_left_panel(f, sessions, h_chunks[0], selected_index);
+    draw_left_panel(f, sessions, h_chunks[0], selected_index, input_mode, input_buffer);
 
     // Right panel: preview (optionally with input bar at bottom)
     draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1]);
 
     // Footer: app name + instructions (full width)
-    let instructions = Paragraph::new("crmux | j/k:Nav Space:Mark Enter:Switch Pane i:Input Mode q:Quit")
+    let footer_text = match input_mode {
+        InputMode::Title => "Title | Enter:Save Esc:Cancel",
+        InputMode::Input => "Input | C-Enter:Send Esc:Cancel",
+        InputMode::Normal => "crmux | j/k:Nav Space:Mark Enter:Switch i:Input e:Edit q:Quit",
+    };
+    let instructions = Paragraph::new(footer_text)
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);
@@ -143,10 +160,11 @@ fn draw_right_panel(
         draw_preview_panes(f, preview_contents, v_chunks[0]);
 
         // Input bar
+        let input_title = "Input (C-Enter/C-d: send | Esc: cancel)";
         let input_text = Text::raw(input_buffer);
         let input_bar = Paragraph::new(input_text).block(
             Block::default()
-                .title("Input (C-Enter/C-d: send | Esc: cancel)")
+                .title(input_title)
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Yellow)),
         );
@@ -233,8 +251,10 @@ fn draw_left_panel(
     sessions: &[ManagedSession],
     area: ratatui::layout::Rect,
     selected_index: usize,
+    input_mode: InputMode,
+    input_buffer: &str,
 ) {
-    draw_sessions_list(f, sessions, area, selected_index);
+    draw_sessions_list(f, sessions, area, selected_index, input_mode, input_buffer);
 }
 
 /// Draw the list of Claude sessions.
@@ -243,6 +263,8 @@ fn draw_sessions_list(
     sessions: &[ManagedSession],
     area: ratatui::layout::Rect,
     selected_index: usize,
+    input_mode: InputMode,
+    input_buffer: &str,
 ) {
     let block = Block::default()
         .title(format!("Sessions ({})", sessions.len()))
@@ -259,7 +281,7 @@ fn draw_sessions_list(
         return;
     }
 
-    let constraints: Vec<Constraint> = sessions.iter().map(|_| Constraint::Length(3)).collect();
+    let constraints: Vec<Constraint> = sessions.iter().map(|_| Constraint::Length(4)).collect();
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -311,16 +333,58 @@ fn draw_sessions_list(
             Span::styled(elapsed, Style::default().fg(text_color)),
         ]);
 
-        let paragraph = Paragraph::new(Line::from(spans));
+        let project_line = Line::from(spans);
+        let is_editing_title = is_selected && input_mode == InputMode::Title;
+        let title_line = if is_editing_title {
+            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + indent
+            let (display_text, text_color) = if input_buffer.is_empty() {
+                ("Type a title".to_string(), Color::DarkGray)
+            } else {
+                (truncate_title(input_buffer, max_width), Color::Yellow)
+            };
+            Line::from(Span::styled(
+                format!("    {display_text}"),
+                Style::default().fg(text_color),
+            ))
+        } else if let Some(ref title) = session.title {
+            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + indent
+            let truncated = truncate_title(title, max_width);
+            Line::from(Span::styled(
+                format!("    {truncated}"),
+                Style::default().fg(TITLE_COLOR),
+            ))
+        } else {
+            Line::from(Span::styled(
+                "    Press e to edit title",
+                Style::default().fg(TITLE_COLOR),
+            ))
+        };
+        let paragraph = Paragraph::new(vec![project_line, title_line]);
+
+        let card_border_style = if is_editing_title {
+            Style::default().fg(Color::Yellow)
+        } else {
+            border_style
+        };
 
         let block = Block::default()
             .title(title)
             .borders(Borders::ALL)
-            .border_style(border_style);
+            .border_style(card_border_style);
 
         let paragraph = paragraph.block(block).style(bg_style);
 
         f.render_widget(paragraph, layout[idx]);
+
+        // Set cursor position for inline title editing
+        if is_editing_title {
+            let inner = Block::default().borders(Borders::ALL).inner(layout[idx]);
+            // Cursor on the title line (2nd line = inner.y + 1), after "    " prefix + buffer text
+            #[allow(clippy::cast_possible_truncation)]
+            let cursor_x = inner.x + 4 + input_buffer.chars().count().min((inner.width.saturating_sub(4)) as usize) as u16;
+            let cursor_y = inner.y + 1;
+            f.set_cursor_position((cursor_x, cursor_y));
+        }
     }
 }
 
@@ -452,6 +516,34 @@ mod tests {
     #[test]
     fn test_selected_icon_is_not_empty() {
         assert!(!SELECTED_ICON.is_empty());
+    }
+
+    // --- truncate_title tests ---
+
+    #[test]
+    fn test_truncate_short_title() {
+        assert_eq!(truncate_title("short", 20), "short");
+    }
+
+    #[test]
+    fn test_truncate_exact_length() {
+        assert_eq!(truncate_title("abcde", 5), "abcde");
+    }
+
+    #[test]
+    fn test_truncate_long_title() {
+        assert_eq!(truncate_title("abcdef", 5), "abcd…");
+    }
+
+    #[test]
+    fn test_truncate_multibyte() {
+        // UTF-8 safe: "あいう" is 3 chars
+        assert_eq!(truncate_title("あいうえお", 4), "あいう…");
+    }
+
+    #[test]
+    fn test_truncate_empty() {
+        assert_eq!(truncate_title("", 10), "");
     }
 
     #[test]
