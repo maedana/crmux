@@ -5,10 +5,72 @@ use ratatui::{
     text::{Line, Span, Text},
     widgets::{Block, Borders, Paragraph},
 };
-use std::time::Instant;
+use std::time::{Instant, SystemTime};
 use tmux_claude_state::claude_state::ClaudeState;
 
 use crate::state::{InputMode, ManagedSession};
+
+const STALE_MIN_SECS: u64 = 5;
+const STALE_MAX_SECS: u64 = 15;
+
+/// Determine if a session should pulse based on its state and elapsed time.
+pub fn should_pulse(state: &ClaudeState, elapsed_secs: u64) -> bool {
+    matches!(state, ClaudeState::WaitingForApproval)
+        || (matches!(state, ClaudeState::Idle)
+            && (STALE_MIN_SECS..=STALE_MAX_SECS).contains(&elapsed_secs))
+}
+
+/// Convert a ratatui `Color` to an RGB tuple.
+const fn color_to_rgb(color: Color) -> (u8, u8, u8) {
+    match color {
+        Color::Blue => (0, 0, 255),
+        Color::LightRed => (255, 100, 100),
+        Color::White => (255, 255, 255),
+        Color::Rgb(r, g, b) => (r, g, b),
+        _ => (200, 200, 200),
+    }
+}
+
+/// Return the current sine-wave factor (0.0–1.0) for pulse animations.
+fn pulse_factor() -> f64 {
+    let t = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs_f64();
+    f64::midpoint((t * 16.0).sin(), 1.0) // 0.0 ~ 1.0
+}
+
+/// Calculate a pulsing foreground color by modulating base color brightness with a sine wave.
+fn pulse_color(base: Color) -> Color {
+    let brightness = pulse_factor().mul_add(0.7, 0.3); // 0.3 ~ 1.0
+    let (r, g, b) = color_to_rgb(base);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Color::Rgb(
+        (f64::from(r) * brightness) as u8,
+        (f64::from(g) * brightness) as u8,
+        (f64::from(b) * brightness) as u8,
+    )
+}
+
+/// Calculate a pulsing background color (dimmed version of the base color).
+fn pulse_bg_color(base: Color) -> Color {
+    let intensity = pulse_factor() * 0.25; // 0.0 ~ 0.25
+    let (r, g, b) = color_to_rgb(base);
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    Color::Rgb(
+        (f64::from(r) * intensity) as u8,
+        (f64::from(g) * intensity) as u8,
+        (f64::from(b) * intensity) as u8,
+    )
+}
+
+/// Check if any session in the slice is currently pulsing.
+pub fn has_pulsing_sessions(sessions: &[ManagedSession]) -> bool {
+    sessions.iter().any(|s| {
+        let elapsed = s.state_changed_at.elapsed().as_secs();
+        should_pulse(&s.state, elapsed)
+    })
+}
 
 /// Format elapsed time since an `Instant` into a human-readable string.
 pub fn format_elapsed(since: Instant) -> String {
@@ -227,11 +289,17 @@ fn draw_sessions_list(
             break;
         }
         let is_selected = idx == selected_index;
-        let color = state_color(&session.state);
+        let elapsed_secs = session.state_changed_at.elapsed().as_secs();
+        let is_pulsing = should_pulse(&session.state, elapsed_secs);
+        let color = if is_pulsing {
+            pulse_color(state_color(&session.state))
+        } else {
+            state_color(&session.state)
+        };
         let elapsed = format_elapsed(session.state_changed_at);
         let label = state_label(&session.state);
 
-        let text_color = if is_selected { Color::Yellow } else { color };
+        let text_color = color;
         let mark_indicator = if session.marked { "* " } else { "  " };
         let spans = vec![
             Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -253,7 +321,9 @@ fn draw_sessions_list(
             Style::default().fg(color)
         };
 
-        let bg_style = if is_selected {
+        let bg_style = if is_pulsing {
+            Style::default().bg(pulse_bg_color(state_color(&session.state)))
+        } else if is_selected {
             Style::default().bg(Color::DarkGray)
         } else {
             Style::default()
@@ -346,5 +416,91 @@ mod tests {
         let ansi = "\x1b[31mred\x1b[0m normal";
         let text = ansi.into_text().unwrap();
         assert!(!text.lines.is_empty());
+    }
+
+    // --- should_pulse tests ---
+
+    #[test]
+    fn test_should_pulse_approval() {
+        // WaitingForApproval should always pulse regardless of elapsed time
+        assert!(should_pulse(&ClaudeState::WaitingForApproval, 0));
+        assert!(should_pulse(&ClaudeState::WaitingForApproval, 100));
+    }
+
+    #[test]
+    fn test_should_pulse_idle_stale() {
+        // Idle within STALE_MIN_SECS..=STALE_MAX_SECS should pulse
+        assert!(should_pulse(&ClaudeState::Idle, 5));
+        assert!(should_pulse(&ClaudeState::Idle, 10));
+        assert!(should_pulse(&ClaudeState::Idle, 15));
+    }
+
+    #[test]
+    fn test_should_pulse_idle_not_stale() {
+        // Idle outside the stale range should NOT pulse
+        assert!(!should_pulse(&ClaudeState::Idle, 4));
+        assert!(!should_pulse(&ClaudeState::Idle, 16));
+    }
+
+    #[test]
+    fn test_should_pulse_working() {
+        // Working should never pulse
+        assert!(!should_pulse(&ClaudeState::Working, 0));
+        assert!(!should_pulse(&ClaudeState::Working, 10));
+    }
+
+    // --- color_to_rgb tests ---
+
+    #[test]
+    fn test_color_to_rgb() {
+        assert_eq!(color_to_rgb(Color::Blue), (0, 0, 255));
+        assert_eq!(color_to_rgb(Color::LightRed), (255, 100, 100));
+        assert_eq!(color_to_rgb(Color::White), (255, 255, 255));
+    }
+
+    // --- pulse_color tests ---
+
+    #[test]
+    fn test_pulse_color_returns_rgb() {
+        let result = pulse_color(Color::LightRed);
+        assert!(matches!(result, Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_pulse_color_within_brightness_range() {
+        // The pulse color should have components <= the base color
+        let base = Color::White; // (255, 255, 255)
+        let result = pulse_color(base);
+        if let Color::Rgb(r, g, b) = result {
+            // brightness ranges from 0.3 to 1.0, so min component is ~76
+            assert!(r >= 76, "r={r} out of expected range");
+            assert!(g >= 76, "g={g} out of expected range");
+            assert!(b >= 76, "b={b} out of expected range");
+        } else {
+            panic!("Expected Color::Rgb");
+        }
+    }
+
+    // --- pulse_bg_color tests ---
+
+    #[test]
+    fn test_pulse_bg_color_returns_rgb() {
+        let result = pulse_bg_color(Color::LightRed);
+        assert!(matches!(result, Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_pulse_bg_color_is_dimmer_than_fg() {
+        // bg intensity tops at 0.25, fg at 1.0, so bg should always be <= fg
+        let base = Color::LightRed;
+        if let (Color::Rgb(fr, fg, fb), Color::Rgb(br, bg, bb)) =
+            (pulse_color(base), pulse_bg_color(base))
+        {
+            assert!(br <= fr, "bg r={br} > fg r={fr}");
+            assert!(bg <= fg, "bg g={bg} > fg g={fg}");
+            assert!(bb <= fb, "bg b={bb} > fg b={fb}");
+        } else {
+            panic!("Expected Color::Rgb");
+        }
     }
 }
