@@ -303,17 +303,20 @@ fn draw_sessions_list(
                 &session.project_name,
                 Style::default().fg(text_color).add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" "),
+        ];
+
+        let title = Line::from(vec![
             Span::styled(label, Style::default().fg(text_color)),
             Span::raw(" "),
             Span::styled(elapsed, Style::default().fg(text_color)),
-        ];
+        ]);
 
         let paragraph = Paragraph::new(Line::from(spans));
 
         let paragraph = paragraph
             .block(
                 Block::default()
+                    .title(title)
                     .borders(Borders::ALL)
                     .border_style(border_style),
             )
