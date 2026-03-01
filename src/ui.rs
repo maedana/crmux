@@ -137,7 +137,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch to tmux pane i:Input mode e:Edit q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch to tmux pane i:Input mode e:Title mode q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -153,7 +153,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 "-- TITLE --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | C-o:Save&Exit"));
+            spans.push(Span::raw(" | Edit session title. C-o:Save&Exit"));
         }
     }
     spans
