@@ -2,6 +2,35 @@
 
 ## Unreleased
 
+### Added
+- Floating help popup on `?` key with keybinding reference
+- Vim-style mode indicator in footer with persistent app name
+- BackTab (Shift+Tab) mapping for tmux send-keys passthrough
+- Auto-scroll preview panes to show latest output
+- Session title (renamed from purpose) with `e` key to edit
+- Focus icon for preview and session card titles
+
+### Changed
+- Input mode changed to real-time send-keys passthrough
+- Input mode exit key changed from Esc to `Ctrl+O` to allow Esc passthrough
+- Title mode exit unified to `Ctrl+O` with auto-save
+- Switch keybinding rebound to `s` key
+- Session card: merged indicator and title into single line
+- Session card: moved project name to top border, status to bottom-right
+- Session card: `>` indicator for selected session instead of yellow border
+- Preview pane shows session title via PreviewEntry struct
+- Footer shows detailed descriptions per mode
+- Removed Esc key quit mapping from Normal mode to prevent accidental exits
+- Pulse animation limited to background only
+
+### Fixed
+- Extracted `run_send_keys` helper with synchronous output to fix input ordering
+- Drain pending events before next draw cycle to reduce input lag
+
+### Removed
+- MCP server and plan notification code (added then removed)
+
+### Infrastructure
 - Pulse animation for WaitingForApproval (continuous) and stale Idle (5-15s window) sessions
 - Fixed poll interval to 50ms for smoother rendering
 - Add repository field to Cargo.toml for crates.io
