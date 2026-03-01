@@ -314,22 +314,23 @@ fn draw_sessions_list(
             Span::raw("  ")
         };
 
-        let spans = vec![
-            icon,
-            Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        let project_title = Line::from(vec![
             Span::styled(
                 &session.project_name,
                 Style::default().fg(text_color).add_modifier(Modifier::BOLD),
             ),
-        ];
+        ]);
 
-        let title = Line::from(vec![
+        let indicator_line = Line::from(vec![
+            icon,
+            Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        ]);
+
+        let status_line = Line::from(vec![
             Span::styled(label, Style::default().fg(text_color)),
             Span::raw(" "),
             Span::styled(elapsed, Style::default().fg(text_color)),
         ]);
-
-        let project_line = Line::from(spans);
         let is_editing_title = is_selected && input_mode == InputMode::Title;
         let title_line = if is_editing_title {
             let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + indent
@@ -355,7 +356,7 @@ fn draw_sessions_list(
                 Style::default().fg(TITLE_COLOR),
             ))
         };
-        let paragraph = Paragraph::new(vec![project_line, title_line]);
+        let paragraph = Paragraph::new(vec![indicator_line, title_line]);
 
         let card_border_style = if is_editing_title {
             Style::default().fg(Color::Yellow)
@@ -364,7 +365,8 @@ fn draw_sessions_list(
         };
 
         let block = Block::default()
-            .title(title)
+            .title(project_title)
+            .title_bottom(status_line.right_aligned())
             .borders(Borders::ALL)
             .border_style(card_border_style);
 
