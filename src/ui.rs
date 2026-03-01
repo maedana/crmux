@@ -1,9 +1,9 @@
 use ansi_to_tui::IntoText as _;
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span, Text},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use std::time::{Instant, SystemTime};
 use tmux_claude_state::claude_state::ClaudeState;
@@ -104,6 +104,7 @@ pub fn draw(
     preview_contents: &[(String, String)],
     input_mode: InputMode,
     input_buffer: &str,
+    show_help: bool,
 ) {
     let size = f.area();
 
@@ -130,6 +131,11 @@ pub fn draw(
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);
+
+    // Help popup overlay
+    if show_help {
+        draw_help_popup(f, size);
+    }
 }
 
 /// Build the footer spans: app name, optional vim-style mode indicator, and keybindings.
@@ -137,7 +143,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch to tmux pane i:Input mode e:Title mode q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch to tmux pane i:Input mode e:Title mode ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -145,7 +151,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 "-- INSERT --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | Keys sent to selected pane via send-keys. C-o:Back"));
+            spans.push(Span::raw(" | Keys sent to selected pane via send-keys. Esc:Back"));
         }
         InputMode::Title => {
             spans.push(Span::raw(" "));
@@ -153,7 +159,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 "-- TITLE --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | Edit session title. C-o:Save&Exit"));
+            spans.push(Span::raw(" | Edit session title. Esc:Save&Exit"));
         }
     }
     spans
@@ -239,6 +245,45 @@ fn draw_preview_panes(
             .scroll((scroll_y, 0));
         f.render_widget(preview, chunks[i]);
     }
+}
+
+const HELP_TEXT: &str = "\
+Keybindings (Normal mode):
+  j / ↓          Move cursor down in session list
+  k / ↑          Move cursor up in session list
+  Space          Mark for preview multiple tmux panes
+  s              Switch to tmux pane
+  i              Enter input mode (type a prompt to send to the session)
+  e              Enter title mode (set a title for the session)
+  ?              Show this help
+  q              Quit crmux
+
+Keybindings (Input mode):
+  Esc            Return to normal mode
+  Any other key  Forwarded to the tmux pane via send-keys
+
+Keybindings (Title mode):
+  Esc            Save and return to normal mode
+  Backspace      Delete the last character";
+
+/// Draw a centered help popup overlay.
+fn draw_help_popup(f: &mut ratatui::Frame, area: Rect) {
+    let popup_width = area.width.min(60);
+    let popup_height = area.height.min(20);
+    let x = (area.width.saturating_sub(popup_width)) / 2;
+    let y = (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+    f.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .title(" Help (? to close) ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Cyan));
+    let paragraph = Paragraph::new(HELP_TEXT)
+        .block(block)
+        .wrap(Wrap { trim: false });
+    f.render_widget(paragraph, popup_area);
 }
 
 /// Draw the left panel (session list).
@@ -583,6 +628,13 @@ mod tests {
     #[test]
     fn test_truncate_empty() {
         assert_eq!(truncate_title("", 10), "");
+    }
+
+    #[test]
+    fn test_footer_normal_mode_contains_help_key() {
+        let spans = footer_spans(InputMode::Normal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("?:Help"), "Normal mode footer should contain '?:Help', got: {text}");
     }
 
     #[test]

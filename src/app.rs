@@ -108,6 +108,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 &app_state.preview_contents,
                 app_state.input_mode,
                 &app_state.input_buffer,
+                app_state.show_help,
             );
         })?;
 

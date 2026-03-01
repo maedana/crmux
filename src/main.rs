@@ -15,14 +15,15 @@ Keybindings (Normal mode):
   s              Switch to tmux pane
   i              Enter input mode (type a prompt to send to the session)
   e              Enter title mode (set a title for the session)
+  ?              Show help
   q              Quit crmux
 
 Keybindings (Input mode):
-  Ctrl+o         Return to normal mode
+  Esc            Return to normal mode
   Any other key  Forwarded to the tmux pane via send-keys
 
 Keybindings (Title mode):
-  Ctrl+o         Save and return to normal mode
+  Esc            Save and return to normal mode
   Backspace      Delete the last character")]
 struct Cli {}
 

@@ -57,6 +57,8 @@ pub struct AppState {
     pub input_mode: InputMode,
     /// Buffer for text input in Input mode.
     pub input_buffer: String,
+    /// Whether the help popup is currently shown.
+    pub show_help: bool,
 }
 
 impl AppState {
@@ -68,6 +70,7 @@ impl AppState {
             preview_contents: Vec::new(),
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
+            show_help: false,
         }
     }
 
@@ -412,6 +415,12 @@ mod tests {
     fn test_initial_input_buffer_is_empty() {
         let app = AppState::new(None);
         assert!(app.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_initial_show_help_is_false() {
+        let app = AppState::new(None);
+        assert!(!app.show_help);
     }
 
     // --- Mark operations ---

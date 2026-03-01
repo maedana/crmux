@@ -16,6 +16,15 @@ pub enum Action {
 /// Handle a keyboard event and return the appropriate action.
 pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
     if let Event::Key(key) = *event {
+        if state.show_help {
+            return match key.code {
+                KeyCode::Char('?') | KeyCode::Esc => {
+                    state.show_help = false;
+                    Action::Continue
+                }
+                _ => Action::Continue,
+            };
+        }
         match state.input_mode {
             InputMode::Normal => handle_normal_mode(key.code, state),
             InputMode::Input => handle_input_mode(key.code, key.modifiers, state),
@@ -60,13 +69,17 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
             }
             Action::Continue
         }
+        KeyCode::Char('?') => {
+            state.show_help = true;
+            Action::Continue
+        }
         _ => Action::Continue,
     }
 }
 
 fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     match code {
-        KeyCode::Char('o') if modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Esc => {
             state.input_mode = InputMode::Normal;
             Action::Continue
         }
@@ -78,9 +91,9 @@ fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
     }
 }
 
-fn handle_title_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
+fn handle_title_mode(code: KeyCode, _modifiers: KeyModifiers, state: &mut AppState) -> Action {
     match code {
-        KeyCode::Char('o') if modifiers.contains(KeyModifiers::CONTROL) => {
+        KeyCode::Esc => {
             save_title(state);
             Action::Continue
         }
@@ -181,10 +194,6 @@ mod tests {
 
     fn make_key_event(code: KeyCode) -> Event {
         Event::Key(KeyEvent::new(code, KeyModifiers::NONE))
-    }
-
-    fn make_key_event_with_modifiers(code: KeyCode, modifiers: KeyModifiers) -> Event {
-        Event::Key(KeyEvent::new(code, modifiers))
     }
 
     fn make_state_with_session() -> AppState {
@@ -306,24 +315,12 @@ mod tests {
     // --- Input mode tests (passthrough) ---
 
     #[test]
-    fn test_input_mode_ctrl_o_returns_to_normal() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Input;
-        let action = handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
-            &mut state,
-        );
-        assert_eq!(action, Action::Continue);
-        assert_eq!(state.input_mode, InputMode::Normal);
-    }
-
-    #[test]
-    fn test_input_mode_esc_stays_in_input() {
+    fn test_input_mode_esc_returns_to_normal() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Input;
         let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
         assert_eq!(action, Action::Continue);
-        assert_eq!(state.input_mode, InputMode::Input);
+        assert_eq!(state.input_mode, InputMode::Normal);
     }
 
     #[test]
@@ -403,14 +400,11 @@ mod tests {
     // --- Title mode tests ---
 
     #[test]
-    fn test_title_ctrl_o_saves_and_exits() {
+    fn test_title_esc_saves_and_exits() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Title;
         state.input_buffer = "new title".to_string();
-        let action = handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
-            &mut state,
-        );
+        let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
         assert_eq!(action, Action::Continue);
         assert_eq!(state.input_mode, InputMode::Normal);
         assert!(state.input_buffer.is_empty());
@@ -418,27 +412,21 @@ mod tests {
     }
 
     #[test]
-    fn test_title_ctrl_o_empty_stores_none() {
+    fn test_title_esc_empty_stores_none() {
         let mut state = make_state_with_session();
         state.sessions[0].title = Some("old".to_string());
         state.input_mode = InputMode::Title;
         state.input_buffer.clear();
-        handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
-            &mut state,
-        );
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
         assert_eq!(state.sessions[0].title, None);
     }
 
     #[test]
-    fn test_title_ctrl_o_whitespace_only_stores_none() {
+    fn test_title_esc_whitespace_only_stores_none() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Title;
         state.input_buffer = "  \t  ".to_string();
-        handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
-            &mut state,
-        );
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
         assert_eq!(state.sessions[0].title, None);
     }
 
@@ -468,5 +456,42 @@ mod tests {
         state.input_buffer = "abc".to_string();
         handle_key_event(&make_key_event(KeyCode::Backspace), &mut state);
         assert_eq!(state.input_buffer, "ab");
+    }
+
+    // --- Help popup tests ---
+
+    #[test]
+    fn test_question_mark_opens_help() {
+        let mut state = AppState::new(None);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('?')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(state.show_help);
+    }
+
+    #[test]
+    fn test_question_mark_closes_help() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        let action = handle_key_event(&make_key_event(KeyCode::Char('?')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(!state.show_help);
+    }
+
+    #[test]
+    fn test_esc_closes_help() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(!state.show_help);
+    }
+
+    #[test]
+    fn test_q_does_not_quit_during_help() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        let action = handle_key_event(&make_key_event(KeyCode::Char('q')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(state.show_help);
     }
 }

@@ -53,6 +53,7 @@ crmux
 | `s` | Switch tmux focus to the selected session's pane |
 | `i` | Enter input mode |
 | `e` | Edit session title |
+| `?` | Show help |
 | `q` | Quit |
 
 #### Input mode
@@ -61,7 +62,7 @@ Keystrokes are forwarded directly to the selected session's tmux pane via `send-
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+o` | Return to normal mode |
+| `Esc` | Return to normal mode |
 | Any other key | Forwarded to the tmux pane |
 
 ## Limitations
