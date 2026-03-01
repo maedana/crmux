@@ -54,7 +54,7 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
             }
             Action::Continue
         }
-        KeyCode::Enter => {
+        KeyCode::Char('s') => {
             if let Some(pane_id) = state.selected_pane_id() {
                 tmux_claude_state::tmux::switch_to_pane(pane_id);
             }
@@ -247,9 +247,9 @@ mod tests {
     }
 
     #[test]
-    fn test_enter_continues() {
+    fn test_s_continues() {
         let mut state = AppState::new(None);
-        let action = handle_key_event(&make_key_event(KeyCode::Enter), &mut state);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('s')), &mut state);
         assert_eq!(action, Action::Continue);
     }
 

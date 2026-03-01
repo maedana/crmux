@@ -49,8 +49,8 @@ crmux
 |-----|--------|
 | `j` / `↓` | Move cursor down |
 | `k` / `↑` | Move cursor up |
-| `Space` | Mark/unmark session for multi-preview |
-| `Enter` | Switch tmux focus to the selected session's pane |
+| `Space` | Mark for preview multiple tmux panes |
+| `s` | Switch tmux focus to the selected session's pane |
 | `i` | Enter input mode |
 | `e` | Edit session title |
 | `q` | Quit |

@@ -137,7 +137,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav Space:Mark Enter:Switch i:Input e:Edit q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch to tmux pane i:Input mode e:Edit q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -145,7 +145,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 "-- INSERT --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | C-o:Back"));
+            spans.push(Span::raw(" | Keys sent to selected pane via send-keys. C-o:Back"));
         }
         InputMode::Title => {
             spans.push(Span::raw(" "));

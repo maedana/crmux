@@ -11,8 +11,8 @@ mod ui;
 Keybindings (Normal mode):
   j / ↓          Move cursor down in session list
   k / ↑          Move cursor up in session list
-  Space          Mark/unmark session for multi-preview
-  Enter          Switch tmux focus to the selected session's pane
+  Space          Mark for preview multiple tmux panes
+  s              Switch to tmux pane
   i              Enter input mode (type a prompt to send to the session)
   e              Enter title mode (set a title for the session)
   q              Quit crmux
