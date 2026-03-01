@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.2.1
+
+### Changed
+- Update README: add pulse animation feature, fix installation instructions, add roadmap
+
 ## 0.2.0
 
 ### Added
