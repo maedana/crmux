@@ -1,5 +1,7 @@
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 
+use std::process::{Command, Stdio};
+
 use crate::state::{AppState, InputMode};
 
 /// Action to take after handling a keyboard event.
@@ -125,11 +127,8 @@ fn send_key_to_pane(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
 
     if modifiers.contains(KeyModifiers::CONTROL) {
         if let KeyCode::Char(c) = code {
-            // Send as tmux C-x notation
             let key_name = format!("C-{c}");
-            let _ = std::process::Command::new("tmux")
-                .args(["send-keys", "-t", pane_id, &key_name])
-                .output();
+            run_send_keys(pane_id, &[&key_name]);
         }
         return;
     }
@@ -137,15 +136,11 @@ fn send_key_to_pane(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
     match code {
         KeyCode::Char(c) => {
             let s = c.to_string();
-            let _ = std::process::Command::new("tmux")
-                .args(["send-keys", "-t", pane_id, "-l", &s])
-                .output();
+            run_send_keys(pane_id, &["-l", &s]);
         }
         _ => {
             if let Some(key_name) = keycode_to_tmux_name(code) {
-                let _ = std::process::Command::new("tmux")
-                    .args(["send-keys", "-t", pane_id, key_name])
-                    .output();
+                run_send_keys(pane_id, &[key_name]);
             }
         }
     }
@@ -170,6 +165,19 @@ fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
         KeyCode::Insert => Some("IC"),
         _ => None,
     }
+}
+
+/// Run `tmux send-keys -t <pane_id> <extra_args>` and wait for completion.
+fn run_send_keys(pane_id: &str, extra_args: &[&str]) {
+    let _ = Command::new("tmux")
+        .arg("send-keys")
+        .arg("-t")
+        .arg(pane_id)
+        .args(extra_args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
 }
 
 #[cfg(test)]
