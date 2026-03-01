@@ -111,11 +111,20 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             );
         })?;
 
+        // Wait for at least one event or timeout for periodic refresh
         if event::poll(Duration::from_millis(50))? {
             let ev = event::read()?;
             match event_handler::handle_key_event(&ev, &mut app_state) {
                 Action::Quit => return Ok(()),
                 Action::Continue => {}
+            }
+            // Drain all remaining pending events before next capture/draw cycle
+            while event::poll(Duration::ZERO)? {
+                let ev = event::read()?;
+                match event_handler::handle_key_event(&ev, &mut app_state) {
+                    Action::Quit => return Ok(()),
+                    Action::Continue => {}
+                }
             }
         }
     }
