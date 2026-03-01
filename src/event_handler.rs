@@ -42,7 +42,6 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
         KeyCode::Char('i') => {
             if state.selected_pane_id().is_some() {
                 state.input_mode = InputMode::Input;
-                state.input_buffer.clear();
             }
             Action::Continue
         }
@@ -66,30 +65,14 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
 fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     match code {
         KeyCode::Esc => {
-            state.input_buffer.clear();
             state.input_mode = InputMode::Normal;
             Action::Continue
         }
-        // Ctrl+Enter (requires Kitty keyboard protocol) or Ctrl+D (universal fallback)
-        KeyCode::Enter | KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
-            send_keys_to_selected_pane(state);
-            state.input_buffer.clear();
-            state.input_mode = InputMode::Normal;
+        // All other keys are forwarded to the tmux pane immediately
+        _ => {
+            send_key_to_pane(code, modifiers, state);
             Action::Continue
         }
-        KeyCode::Enter => {
-            state.input_buffer.push('\n');
-            Action::Continue
-        }
-        KeyCode::Backspace => {
-            state.input_buffer.pop();
-            Action::Continue
-        }
-        KeyCode::Char(c) => {
-            state.input_buffer.push(c);
-            Action::Continue
-        }
-        _ => Action::Continue,
     }
 }
 
@@ -134,20 +117,57 @@ fn save_title(state: &mut AppState) {
     state.input_mode = InputMode::Normal;
 }
 
-fn send_keys_to_selected_pane(state: &AppState) {
-    if let Some(pane_id) = state.selected_pane_id() {
-        let text = &state.input_buffer;
-        if text.is_empty() {
-            return;
+/// Send a single key event to the selected tmux pane immediately.
+fn send_key_to_pane(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
+    let Some(pane_id) = state.selected_pane_id() else {
+        return;
+    };
+
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        if let KeyCode::Char(c) = code {
+            // Send as tmux C-x notation
+            let key_name = format!("C-{c}");
+            let _ = std::process::Command::new("tmux")
+                .args(["send-keys", "-t", pane_id, &key_name])
+                .output();
         }
-        // Send the text literally
-        let _ = std::process::Command::new("tmux")
-            .args(["send-keys", "-t", pane_id, "-l", text])
-            .output();
-        // Send Enter to execute
-        let _ = std::process::Command::new("tmux")
-            .args(["send-keys", "-t", pane_id, "Enter"])
-            .output();
+        return;
+    }
+
+    match code {
+        KeyCode::Char(c) => {
+            let s = c.to_string();
+            let _ = std::process::Command::new("tmux")
+                .args(["send-keys", "-t", pane_id, "-l", &s])
+                .output();
+        }
+        _ => {
+            if let Some(key_name) = keycode_to_tmux_name(code) {
+                let _ = std::process::Command::new("tmux")
+                    .args(["send-keys", "-t", pane_id, key_name])
+                    .output();
+            }
+        }
+    }
+}
+
+/// Map a `KeyCode` to its tmux key name for special keys.
+fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
+    match code {
+        KeyCode::Enter => Some("Enter"),
+        KeyCode::Backspace => Some("BSpace"),
+        KeyCode::Tab => Some("Tab"),
+        KeyCode::Left => Some("Left"),
+        KeyCode::Right => Some("Right"),
+        KeyCode::Up => Some("Up"),
+        KeyCode::Down => Some("Down"),
+        KeyCode::Home => Some("Home"),
+        KeyCode::End => Some("End"),
+        KeyCode::PageUp => Some("PageUp"),
+        KeyCode::PageDown => Some("PageDown"),
+        KeyCode::Delete => Some("DC"),
+        KeyCode::Insert => Some("IC"),
+        _ => None,
     }
 }
 
@@ -282,88 +302,15 @@ mod tests {
         assert_eq!(state.input_mode, InputMode::Normal);
     }
 
-    #[test]
-    fn test_i_clears_buffer_on_enter() {
-        let mut state = make_state_with_session();
-        state.input_buffer = "leftover".to_string();
-        handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
-        assert!(state.input_buffer.is_empty());
-    }
-
-    // --- Input mode tests ---
+    // --- Input mode tests (passthrough) ---
 
     #[test]
-    fn test_input_mode_char_appended_to_buffer() {
+    fn test_input_mode_esc_returns_to_normal() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Input;
-        handle_key_event(&make_key_event(KeyCode::Char('h')), &mut state);
-        handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
-        assert_eq!(state.input_buffer, "hi");
-    }
-
-    #[test]
-    fn test_input_mode_enter_adds_newline() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Input;
-        handle_key_event(&make_key_event(KeyCode::Char('a')), &mut state);
-        handle_key_event(&make_key_event(KeyCode::Enter), &mut state);
-        handle_key_event(&make_key_event(KeyCode::Char('b')), &mut state);
-        assert_eq!(state.input_buffer, "a\nb");
-    }
-
-    #[test]
-    fn test_input_mode_backspace_removes_char() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Input;
-        state.input_buffer = "abc".to_string();
-        handle_key_event(&make_key_event(KeyCode::Backspace), &mut state);
-        assert_eq!(state.input_buffer, "ab");
-    }
-
-    #[test]
-    fn test_input_mode_backspace_on_empty() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Input;
-        handle_key_event(&make_key_event(KeyCode::Backspace), &mut state);
-        assert!(state.input_buffer.is_empty());
-    }
-
-    #[test]
-    fn test_input_mode_esc_cancels() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Input;
-        state.input_buffer = "some text".to_string();
-        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
-        assert_eq!(state.input_mode, InputMode::Normal);
-        assert!(state.input_buffer.is_empty());
-    }
-
-    #[test]
-    fn test_input_mode_ctrl_enter_sends_and_returns_to_normal() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Input;
-        state.input_buffer = "hello".to_string();
-        let action = handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Enter, KeyModifiers::CONTROL),
-            &mut state,
-        );
+        let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
         assert_eq!(action, Action::Continue);
         assert_eq!(state.input_mode, InputMode::Normal);
-        assert!(state.input_buffer.is_empty());
-    }
-
-    #[test]
-    fn test_input_mode_ctrl_d_sends_and_returns_to_normal() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Input;
-        state.input_buffer = "hello".to_string();
-        let action = handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Char('d'), KeyModifiers::CONTROL),
-            &mut state,
-        );
-        assert_eq!(action, Action::Continue);
-        assert_eq!(state.input_mode, InputMode::Normal);
-        assert!(state.input_buffer.is_empty());
     }
 
     #[test]
@@ -372,7 +319,39 @@ mod tests {
         state.input_mode = InputMode::Input;
         let action = handle_key_event(&make_key_event(KeyCode::Char('q')), &mut state);
         assert_eq!(action, Action::Continue);
-        assert_eq!(state.input_buffer, "q");
+        // Should stay in Input mode, not quit
+        assert_eq!(state.input_mode, InputMode::Input);
+    }
+
+    #[test]
+    fn test_input_mode_keys_do_not_modify_buffer() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Input;
+        handle_key_event(&make_key_event(KeyCode::Char('h')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
+        // Passthrough mode: keys are sent to tmux, not buffered
+        assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_input_mode_enter_does_not_modify_buffer() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Input;
+        let action = handle_key_event(&make_key_event(KeyCode::Enter), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Input);
+        assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_input_mode_special_keys_stay_in_input() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Input;
+        for key in [KeyCode::Backspace, KeyCode::Tab, KeyCode::Left, KeyCode::Right] {
+            let action = handle_key_event(&make_key_event(key), &mut state);
+            assert_eq!(action, Action::Continue);
+            assert_eq!(state.input_mode, InputMode::Input);
+        }
     }
 
     // --- e key enters title mode ---

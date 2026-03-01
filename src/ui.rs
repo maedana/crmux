@@ -128,7 +128,7 @@ pub fn draw(
     // Footer: app name + instructions (full width)
     let footer_text = match input_mode {
         InputMode::Title => "Title | Enter:Save Esc:Cancel",
-        InputMode::Input => "Input | C-Enter:Send Esc:Cancel",
+        InputMode::Input => "Input | Esc:Back",
         InputMode::Normal => "crmux | j/k:Nav Space:Mark Enter:Switch i:Input e:Edit q:Quit",
     };
     let instructions = Paragraph::new(footer_text)
@@ -137,51 +137,15 @@ pub fn draw(
     f.render_widget(instructions, v_chunks[1]);
 }
 
-/// Draw the right panel: preview(s) + optional input bar.
+/// Draw the right panel: preview pane(s).
 fn draw_right_panel(
     f: &mut ratatui::Frame,
     preview_contents: &[(String, String)],
-    input_mode: InputMode,
-    input_buffer: &str,
+    _input_mode: InputMode,
+    _input_buffer: &str,
     area: ratatui::layout::Rect,
 ) {
-    if input_mode == InputMode::Input {
-        // Count lines in input buffer to size the input bar (min 3, max 8)
-        let line_count = input_buffer.chars().filter(|&c| c == '\n').count() + 1;
-        #[allow(clippy::cast_possible_truncation)]
-        let input_height = (line_count as u16 + 2).clamp(3, 8); // +2 for borders
-
-        let v_chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(0), Constraint::Length(input_height)])
-            .split(area);
-
-        // Preview(s)
-        draw_preview_panes(f, preview_contents, v_chunks[0]);
-
-        // Input bar
-        let input_title = "Input (C-Enter/C-d: send | Esc: cancel)";
-        let input_text = Text::raw(input_buffer);
-        let input_bar = Paragraph::new(input_text).block(
-            Block::default()
-                .title(input_title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Yellow)),
-        );
-        f.render_widget(input_bar, v_chunks[1]);
-
-        // Place cursor at end of input
-        let inner = Block::default().borders(Borders::ALL).inner(v_chunks[1]);
-        let last_line = input_buffer.lines().last().unwrap_or("");
-        #[allow(clippy::cast_possible_truncation)]
-        let cursor_x = inner.x + last_line.len() as u16;
-        #[allow(clippy::cast_possible_truncation)]
-        let cursor_y = inner.y + input_buffer.chars().filter(|&c| c == '\n').count() as u16;
-        f.set_cursor_position((cursor_x, cursor_y));
-    } else {
-        // Normal mode: just preview(s)
-        draw_preview_panes(f, preview_contents, area);
-    }
+    draw_preview_panes(f, preview_contents, area);
 }
 
 /// Draw one or more preview panes, splitting the area vertically.
