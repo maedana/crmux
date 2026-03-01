@@ -83,17 +83,17 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 let name = session.project_name.clone();
                 let pane_id = session.pane_id.clone();
                 let content = tmux_claude_state::tmux::capture_pane_with_ansi(&pane_id);
-                app_state.preview_contents = vec![(name, content)];
+                app_state.preview_contents = vec![(name, pane_id, content)];
             } else {
                 app_state.preview_contents.clear();
             }
         } else {
             // Show all marked sessions
-            let pairs: Vec<(String, String)> = marked
+            let pairs: Vec<(String, String, String)> = marked
                 .iter()
                 .map(|s| {
                     let content = tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id);
-                    (s.project_name.clone(), content)
+                    (s.project_name.clone(), s.pane_id.clone(), content)
                 })
                 .collect();
             app_state.preview_contents = pairs;

@@ -101,7 +101,7 @@ pub fn draw(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
     selected_index: usize,
-    preview_contents: &[(String, String)],
+    preview_contents: &[(String, String, String)],
     input_mode: InputMode,
     input_buffer: &str,
     show_help: bool,
@@ -124,7 +124,10 @@ pub fn draw(
     draw_left_panel(f, sessions, h_chunks[0], selected_index, input_mode, input_buffer);
 
     // Right panel: preview (optionally with input bar at bottom)
-    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1]);
+    let selected_pane_id = sessions
+        .get(selected_index)
+        .map(|s| s.pane_id.as_str());
+    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id);
 
     // Footer: app name + mode indicator + keybindings (full width)
     let instructions = Paragraph::new(Line::from(footer_spans(input_mode)))
@@ -168,19 +171,21 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
 /// Draw the right panel: preview pane(s).
 fn draw_right_panel(
     f: &mut ratatui::Frame,
-    preview_contents: &[(String, String)],
+    preview_contents: &[(String, String, String)],
     _input_mode: InputMode,
     _input_buffer: &str,
     area: ratatui::layout::Rect,
+    selected_pane_id: Option<&str>,
 ) {
-    draw_preview_panes(f, preview_contents, area);
+    draw_preview_panes(f, preview_contents, area, selected_pane_id);
 }
 
 /// Draw one or more preview panes, splitting the area vertically.
 fn draw_preview_panes(
     f: &mut ratatui::Frame,
-    preview_contents: &[(String, String)],
+    preview_contents: &[(String, String, String)],
     area: ratatui::layout::Rect,
+    selected_pane_id: Option<&str>,
 ) {
     if preview_contents.is_empty() {
         let preview = Paragraph::new("No session selected").block(
@@ -194,7 +199,7 @@ fn draw_preview_panes(
     }
 
     if preview_contents.len() == 1 {
-        let (name, content) = &preview_contents[0];
+        let (name, _pane_id, content) = &preview_contents[0];
         let preview_text = content
             .as_str()
             .into_text()
@@ -205,7 +210,7 @@ fn draw_preview_panes(
         let preview = Paragraph::new(preview_text)
             .block(
                 Block::default()
-                    .title(format!("Preview: {name}"))
+                    .title(format!("{SELECTED_ICON}Preview: {name}"))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Gray)),
             )
@@ -227,7 +232,7 @@ fn draw_preview_panes(
         .constraints(constraints)
         .split(area);
 
-    for (i, (name, content)) in preview_contents.iter().enumerate() {
+    for (i, (name, pane_id, content)) in preview_contents.iter().enumerate() {
         let preview_text = content
             .as_str()
             .into_text()
@@ -235,10 +240,12 @@ fn draw_preview_panes(
         let text_lines = preview_text.lines.len() as u16;
         let inner_height = chunks[i].height.saturating_sub(2);
         let scroll_y = text_lines.saturating_sub(inner_height);
+        let is_focused = selected_pane_id == Some(pane_id.as_str());
+        let title_prefix = if is_focused { SELECTED_ICON } else { "" };
         let preview = Paragraph::new(preview_text)
             .block(
                 Block::default()
-                    .title(format!("Preview: {name}"))
+                    .title(format!("{title_prefix}Preview: {name}"))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Gray)),
             )
@@ -347,21 +354,15 @@ fn draw_sessions_list(
 
         let bg_style = if is_pulsing {
             Style::default().bg(pulse_bg_color(state_color(&session.state)))
-        } else if is_selected {
-            Style::default().bg(Color::DarkGray)
         } else {
             Style::default()
         };
 
-        let icon = if is_selected {
-            Span::raw(SELECTED_ICON)
-        } else {
-            Span::raw("  ")
-        };
+        let title_prefix = if is_selected { SELECTED_ICON } else { "" };
 
         let project_title = Line::from(vec![
             Span::styled(
-                &session.project_name,
+                format!("{title_prefix}{}", &session.project_name),
                 Style::default().fg(text_color).add_modifier(Modifier::BOLD),
             ),
         ]);
@@ -375,28 +376,25 @@ fn draw_sessions_list(
         ]);
         let is_editing_title = is_selected && input_mode == InputMode::Title;
         let combined_line = if is_editing_title {
-            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + icon + mark
+            let max_width = layout[idx].width.saturating_sub(4) as usize; // borders + mark
             let (display_text, text_color) = if input_buffer.is_empty() {
                 ("Type a title".to_string(), Color::DarkGray)
             } else {
                 (truncate_title(input_buffer, max_width), Color::Yellow)
             };
             Line::from(vec![
-                icon,
                 mark_span,
                 Span::styled(display_text, Style::default().fg(text_color)),
             ])
         } else if let Some(ref title) = session.title {
-            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + icon + mark
+            let max_width = layout[idx].width.saturating_sub(4) as usize; // borders + mark
             let truncated = truncate_title(title, max_width);
             Line::from(vec![
-                icon,
                 mark_span,
                 Span::styled(truncated, Style::default().fg(TITLE_COLOR)),
             ])
         } else {
             Line::from(vec![
-                icon,
                 mark_span,
                 Span::styled("Press e to edit title", Style::default().fg(TITLE_COLOR)),
             ])
@@ -422,9 +420,9 @@ fn draw_sessions_list(
         // Set cursor position for inline title editing
         if is_editing_title {
             let inner = Block::default().borders(Borders::ALL).inner(layout[idx]);
-            // Cursor on the title line (2nd line = inner.y + 1), after "    " prefix + buffer text
+            // Cursor after mark indicator (2 chars) + buffer text
             #[allow(clippy::cast_possible_truncation)]
-            let cursor_x = inner.x + 4 + input_buffer.chars().count().min((inner.width.saturating_sub(4)) as usize) as u16;
+            let cursor_x = inner.x + 2 + input_buffer.chars().count().min((inner.width.saturating_sub(2)) as usize) as u16;
             let cursor_y = inner.y;
             f.set_cursor_position((cursor_x, cursor_y));
         }

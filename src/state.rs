@@ -51,8 +51,8 @@ pub struct AppState {
     pub selected_index: usize,
     /// PID of our own sidebar pane's process (excluded from aggregation).
     pub own_pid: Option<u32>,
-    /// Preview contents: Vec of (`project_name`, `pane_content`) pairs.
-    pub preview_contents: Vec<(String, String)>,
+    /// Preview contents: Vec of (`project_name`, `pane_id`, `pane_content`) tuples.
+    pub preview_contents: Vec<(String, String, String)>,
     /// Current input mode.
     pub input_mode: InputMode,
     /// Buffer for text input in Input mode.
