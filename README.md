@@ -8,20 +8,37 @@ Inspired by [cmux](https://www.cmux.dev). crmux brings a similar multi-session m
 - Mark sessions to preview multiple panes simultaneously
 - Switch to any session's tmux pane instantly
 - Send prompts directly via tmux `send-keys` in input mode without leaving crmux
+- Pulse animation to highlight sessions that need attention (approval idle, stale idle)
 
 ## Demo
 ![gif][1]
 
-## Requirements
+## Prerequisites
 
 - tmux
-- Rust (cargo)
 - [tmux-claude-state](https://github.com/maedana/claudeye/tree/main/crates/tmux-claude-state)
+- Rust (latest stable version)
 
 ## Installation
 
+### From crates.io (Recommended)
+
 ```sh
-cargo install --path .
+cargo install crmux
+```
+
+After installation, make sure `~/.cargo/bin` is in your PATH, then you can run:
+
+```sh
+crmux
+```
+
+### Build from source
+
+```sh
+git clone https://github.com/maedana/crmux.git
+cd crmux
+cargo build --release
 ```
 
 ## Usage
