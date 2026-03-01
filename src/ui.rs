@@ -125,16 +125,38 @@ pub fn draw(
     // Right panel: preview (optionally with input bar at bottom)
     draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1]);
 
-    // Footer: app name + instructions (full width)
-    let footer_text = match input_mode {
-        InputMode::Title => "Title | Enter:Save Esc:Cancel",
-        InputMode::Input => "Input | C-o:Back",
-        InputMode::Normal => "crmux | j/k:Nav Space:Mark Enter:Switch i:Input e:Edit q:Quit",
-    };
-    let instructions = Paragraph::new(footer_text)
+    // Footer: app name + mode indicator + keybindings (full width)
+    let instructions = Paragraph::new(Line::from(footer_spans(input_mode)))
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);
+}
+
+/// Build the footer spans: app name, optional vim-style mode indicator, and keybindings.
+fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
+    match input_mode {
+        InputMode::Normal => {
+            spans.push(Span::raw(" | j/k:Nav Space:Mark Enter:Switch i:Input e:Edit q:Quit"));
+        }
+        InputMode::Input => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                "-- INSERT --",
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::raw(" | C-o:Back"));
+        }
+        InputMode::Title => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                "-- TITLE --",
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::raw(" | Enter:Save Esc:Cancel"));
+        }
+    }
+    spans
 }
 
 /// Draw the right panel: preview pane(s).
@@ -490,6 +512,47 @@ mod tests {
     #[test]
     fn test_selected_icon_is_not_empty() {
         assert!(!SELECTED_ICON.is_empty());
+    }
+
+    // --- footer_spans tests ---
+
+    #[test]
+    fn test_footer_normal_mode_starts_with_app_name() {
+        let spans = footer_spans(InputMode::Normal);
+        assert_eq!(spans[0].content, "crmux");
+    }
+
+    #[test]
+    fn test_footer_normal_mode_has_no_mode_indicator() {
+        let spans = footer_spans(InputMode::Normal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(!text.contains("--"));
+    }
+
+    #[test]
+    fn test_footer_input_mode_starts_with_app_name() {
+        let spans = footer_spans(InputMode::Input);
+        assert_eq!(spans[0].content, "crmux");
+    }
+
+    #[test]
+    fn test_footer_input_mode_has_insert_indicator() {
+        let spans = footer_spans(InputMode::Input);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("-- INSERT --"));
+    }
+
+    #[test]
+    fn test_footer_title_mode_starts_with_app_name() {
+        let spans = footer_spans(InputMode::Title);
+        assert_eq!(spans[0].content, "crmux");
+    }
+
+    #[test]
+    fn test_footer_title_mode_has_title_edit_indicator() {
+        let spans = footer_spans(InputMode::Title);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("-- TITLE --"));
     }
 
     // --- truncate_title tests ---
