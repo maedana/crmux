@@ -84,6 +84,18 @@ pub const fn state_label(state: &ClaudeState) -> &'static str {
     }
 }
 
+/// Truncate a string to fit within a given display width, appending "…" if truncated.
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.chars().count() <= max_len {
+        s.to_string()
+    } else if max_len > 1 {
+        let truncated: String = s.chars().take(max_len - 1).collect();
+        format!("{truncated}…")
+    } else {
+        "…".to_string()
+    }
+}
+
 /// Draw the full TUI: session list (left) + preview pane (right).
 pub fn draw(
     f: &mut ratatui::Frame,
@@ -313,14 +325,22 @@ fn draw_sessions_list(
 
         let paragraph = Paragraph::new(Line::from(spans));
 
-        let paragraph = paragraph
-            .block(
-                Block::default()
-                    .title(title)
-                    .borders(Borders::ALL)
-                    .border_style(border_style),
-            )
-            .style(bg_style);
+        let mut block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(border_style);
+
+        if let Some(plan_title) = &session.plan_title {
+            // Truncate to fit within the border (area width - 2 for border chars)
+            let max_len = layout[idx].width.saturating_sub(4) as usize;
+            let truncated = truncate_str(plan_title, max_len);
+            block = block.title_bottom(Line::from(Span::styled(
+                truncated,
+                Style::default().fg(color),
+            )));
+        }
+
+        let paragraph = paragraph.block(block).style(bg_style);
 
         f.render_widget(paragraph, layout[idx]);
     }
@@ -454,6 +474,28 @@ mod tests {
     #[test]
     fn test_selected_icon_is_not_empty() {
         assert!(!SELECTED_ICON.is_empty());
+    }
+
+    // --- truncate_str tests ---
+
+    #[test]
+    fn test_truncate_str_short_string() {
+        assert_eq!(truncate_str("hello", 10), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_exact_fit() {
+        assert_eq!(truncate_str("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_str_needs_truncation() {
+        assert_eq!(truncate_str("hello world", 8), "hello w…");
+    }
+
+    #[test]
+    fn test_truncate_str_max_len_one() {
+        assert_eq!(truncate_str("hello", 1), "…");
     }
 
     #[test]

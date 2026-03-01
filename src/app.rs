@@ -16,6 +16,7 @@ use std::time::Duration;
 use tmux_claude_state::monitor::MonitorState;
 
 use crate::event_handler::{self, Action};
+use crate::socket::{self, PlanInfo};
 use crate::state::AppState;
 use crate::ui;
 
@@ -26,6 +27,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     // Start monitor polling
     let monitor_state = Arc::new(Mutex::new(MonitorState::default()));
     tmux_claude_state::monitor::start_polling(Arc::clone(&monitor_state));
+
+    // Start Unix socket listener for MCP plan notifications
+    let plan_map = socket::start_listener(socket::SOCKET_PATH);
 
     // Terminal setup
     enable_raw_mode()?;
@@ -44,7 +48,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_event_loop(&mut terminal, &monitor_state, own_pid);
+    let result = run_event_loop(&mut terminal, &monitor_state, &plan_map, own_pid);
+
+    // Socket cleanup
+    socket::cleanup(socket::SOCKET_PATH);
 
     // Terminal cleanup
     if keyboard_enhancement {
@@ -65,6 +72,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     monitor_state: &Arc<Mutex<MonitorState>>,
+    plan_map: &Arc<Mutex<std::collections::HashMap<u32, PlanInfo>>>,
     own_pid: u32,
 ) -> io::Result<()> {
     let mut app_state = AppState::new(Some(own_pid));
@@ -73,6 +81,11 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
         // Sync with monitor state
         if let Ok(monitor) = monitor_state.lock() {
             app_state.sync_with_monitor(&monitor);
+        }
+
+        // Update plan info from socket notifications
+        if let Ok(plans) = plan_map.lock() {
+            app_state.update_plans(&plans);
         }
 
         // Update preview contents

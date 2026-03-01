@@ -1,6 +1,9 @@
+use std::collections::HashMap;
 use std::time::Instant;
 use tmux_claude_state::claude_state::ClaudeState;
 use tmux_claude_state::monitor::{ClaudeSession, MonitorState};
+
+use crate::socket::PlanInfo;
 
 /// A Claude Code session managed by crmux, tracked by PID.
 #[derive(Debug, Clone)]
@@ -17,6 +20,10 @@ pub struct ManagedSession {
     pub state_changed_at: Instant,
     /// Whether this session is marked for multi-preview.
     pub marked: bool,
+    /// Plan title from MCP notification.
+    pub plan_title: Option<String>,
+    /// Plan file path from MCP notification.
+    pub plan_path: Option<String>,
 }
 
 /// Diff result from syncing with `MonitorState`.
@@ -112,6 +119,8 @@ impl AppState {
                     state: session.state.clone(),
                     state_changed_at: session.state_changed_at,
                     marked: false,
+                    plan_title: None,
+                    plan_path: None,
                 });
             }
         }
@@ -175,6 +184,16 @@ impl AppState {
     /// Return references to all marked sessions.
     pub fn marked_sessions(&self) -> Vec<&ManagedSession> {
         self.sessions.iter().filter(|s| s.marked).collect()
+    }
+
+    /// Update plan info on sessions from the shared plan map.
+    pub fn update_plans(&mut self, plans: &HashMap<u32, PlanInfo>) {
+        for session in &mut self.sessions {
+            if let Some(plan) = plans.get(&session.pid) {
+                session.plan_title = Some(plan.title.clone());
+                session.plan_path = Some(plan.path.clone());
+            }
+        }
     }
 }
 
@@ -500,6 +519,62 @@ mod tests {
 
         assert!(app.sessions[0].marked); // mark preserved
         assert!(!app.sessions[1].marked);
+    }
+
+    // --- Plan info update ---
+
+    #[test]
+    fn test_update_plans_sets_plan_title_and_path() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+            make_session(200, "%2", "project-b", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let mut plans = HashMap::new();
+        plans.insert(
+            100,
+            PlanInfo {
+                title: "Add feature X".to_string(),
+                path: "/tmp/plan-x.md".to_string(),
+            },
+        );
+
+        app.update_plans(&plans);
+
+        assert_eq!(
+            app.sessions.iter().find(|s| s.pid == 100).unwrap().plan_title,
+            Some("Add feature X".to_string())
+        );
+        assert_eq!(
+            app.sessions.iter().find(|s| s.pid == 100).unwrap().plan_path,
+            Some("/tmp/plan-x.md".to_string())
+        );
+    }
+
+    #[test]
+    fn test_update_plans_leaves_unmatched_sessions_none() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+            make_session(200, "%2", "project-b", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let mut plans = HashMap::new();
+        plans.insert(
+            100,
+            PlanInfo {
+                title: "Plan A".to_string(),
+                path: "/tmp/a.md".to_string(),
+            },
+        );
+
+        app.update_plans(&plans);
+
+        assert!(app.sessions.iter().find(|s| s.pid == 200).unwrap().plan_title.is_none());
+        assert!(app.sessions.iter().find(|s| s.pid == 200).unwrap().plan_path.is_none());
     }
 
     #[test]

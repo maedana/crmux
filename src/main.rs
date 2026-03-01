@@ -1,10 +1,18 @@
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use std::env;
 
 mod app;
 mod event_handler;
+mod mcp;
+mod socket;
 mod state;
 mod ui;
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run as an MCP server (stdio JSON-RPC)
+    Mcp,
+}
 
 #[derive(Parser)]
 #[command(version, about, after_help = "\
@@ -22,18 +30,28 @@ Keybindings (Input mode):
   Enter          Insert a newline in the input buffer
   Esc            Cancel input and return to normal mode
   Backspace      Delete the last character")]
-struct Cli {}
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Command>,
+}
 
 fn main() {
-    Cli::parse();
+    let cli = Cli::parse();
 
-    if env::var("TMUX").is_err() {
-        eprintln!("crmux must be run inside tmux");
-        std::process::exit(1);
-    }
+    match cli.command {
+        Some(Command::Mcp) => {
+            mcp::run_mcp_server();
+        }
+        None => {
+            if env::var("TMUX").is_err() {
+                eprintln!("crmux must be run inside tmux");
+                std::process::exit(1);
+            }
 
-    if let Err(e) = app::run() {
-        eprintln!("crmux error: {e}");
-        std::process::exit(1);
+            if let Err(e) = app::run() {
+                eprintln!("crmux error: {e}");
+                std::process::exit(1);
+            }
+        }
     }
 }
