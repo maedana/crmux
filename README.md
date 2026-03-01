@@ -52,17 +52,25 @@ crmux
 | `Space` | Mark/unmark session for multi-preview |
 | `Enter` | Switch tmux focus to the selected session's pane |
 | `i` | Enter input mode |
+| `e` | Edit session title |
 | `q` / `Esc` | Quit |
 
 #### Input mode
 
+Keystrokes are forwarded directly to the selected session's tmux pane via `send-keys` (passthrough).
+
 | Key | Action |
 |-----|--------|
-| `Ctrl+Enter` | Send typed text to the session and return to normal mode |
-| `Ctrl+d` | Same as `Ctrl+Enter` (universal fallback) |
-| `Enter` | Insert a newline |
-| `Esc` | Cancel input and return to normal mode |
-| `Backspace` | Delete the last character |
+| `Esc` | Return to normal mode |
+| Any other key | Forwarded to the tmux pane |
+
+## Limitations
+
+Input mode uses tmux `send-keys` to forward keystrokes, which has inherent limitations:
+
+- **Modifier keys**: Some modifier key combinations (e.g. Shift+Enter, Ctrl+Enter) cannot be accurately reproduced via tmux `send-keys`
+- **Terminal dependency**: Terminals without Kitty keyboard protocol support (VTE-based terminals such as XFCE Terminal, GNOME Terminal) cannot distinguish some modified key events from their unmodified counterparts
+- **IME**: Input via IME (e.g. CJK input methods) is not supported
 
 ## License
 
