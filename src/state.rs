@@ -32,6 +32,19 @@ pub struct SyncDiff {
     pub state_changed: Vec<u32>,
 }
 
+/// A single preview pane entry.
+#[derive(Debug, Clone)]
+pub struct PreviewEntry {
+    /// Project name (basename of cwd).
+    pub name: String,
+    /// Tmux pane ID.
+    pub pane_id: String,
+    /// Optional session title label.
+    pub title: Option<String>,
+    /// Captured pane content.
+    pub content: String,
+}
+
 /// Input mode for the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
@@ -51,8 +64,8 @@ pub struct AppState {
     pub selected_index: usize,
     /// PID of our own sidebar pane's process (excluded from aggregation).
     pub own_pid: Option<u32>,
-    /// Preview contents: Vec of (`project_name`, `pane_id`, `pane_content`) tuples.
-    pub preview_contents: Vec<(String, String, String)>,
+    /// Preview contents for each visible pane.
+    pub preview_contents: Vec<PreviewEntry>,
     /// Current input mode.
     pub input_mode: InputMode,
     /// Buffer for text input in Input mode.
@@ -394,6 +407,31 @@ mod tests {
     }
 
     // --- Pane ID update after join-pane ---
+
+    // --- PreviewEntry ---
+
+    #[test]
+    fn test_preview_entry_with_title() {
+        let entry = PreviewEntry {
+            name: "crmux".to_string(),
+            pane_id: "%1".to_string(),
+            title: Some("development".to_string()),
+            content: "hello".to_string(),
+        };
+        assert_eq!(entry.name, "crmux");
+        assert_eq!(entry.title, Some("development".to_string()));
+    }
+
+    #[test]
+    fn test_preview_entry_without_title() {
+        let entry = PreviewEntry {
+            name: "crmux".to_string(),
+            pane_id: "%1".to_string(),
+            title: None,
+            content: "hello".to_string(),
+        };
+        assert_eq!(entry.title, None);
+    }
 
     // --- Preview content ---
 

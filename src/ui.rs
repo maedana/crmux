@@ -8,7 +8,7 @@ use ratatui::{
 use std::time::{Instant, SystemTime};
 use tmux_claude_state::claude_state::ClaudeState;
 
-use crate::state::{InputMode, ManagedSession};
+use crate::state::{InputMode, ManagedSession, PreviewEntry};
 
 const STALE_MIN_SECS: u64 = 5;
 const STALE_MAX_SECS: u64 = 15;
@@ -96,12 +96,20 @@ fn truncate_title(s: &str, max_chars: usize) -> String {
     }
 }
 
+/// Format a preview pane title: "{name} - {title}" if title is present, else "{name} - {pane_id}".
+fn preview_title(name: &str, pane_id: &str, title: &Option<String>) -> String {
+    match title {
+        Some(t) if !t.is_empty() => format!("{name} - {t}"),
+        _ => format!("{name} - {pane_id}"),
+    }
+}
+
 /// Draw the full TUI: session list (left) + preview pane (right).
 pub fn draw(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
     selected_index: usize,
-    preview_contents: &[(String, String, String)],
+    preview_contents: &[PreviewEntry],
     input_mode: InputMode,
     input_buffer: &str,
     show_help: bool,
@@ -171,7 +179,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
 /// Draw the right panel: preview pane(s).
 fn draw_right_panel(
     f: &mut ratatui::Frame,
-    preview_contents: &[(String, String, String)],
+    preview_contents: &[PreviewEntry],
     _input_mode: InputMode,
     _input_buffer: &str,
     area: ratatui::layout::Rect,
@@ -183,7 +191,7 @@ fn draw_right_panel(
 /// Draw one or more preview panes, splitting the area vertically.
 fn draw_preview_panes(
     f: &mut ratatui::Frame,
-    preview_contents: &[(String, String, String)],
+    preview_contents: &[PreviewEntry],
     area: ratatui::layout::Rect,
     selected_pane_id: Option<&str>,
 ) {
@@ -199,18 +207,20 @@ fn draw_preview_panes(
     }
 
     if preview_contents.len() == 1 {
-        let (name, _pane_id, content) = &preview_contents[0];
-        let preview_text = content
+        let entry = &preview_contents[0];
+        let preview_text = entry
+            .content
             .as_str()
             .into_text()
-            .unwrap_or_else(|_| Text::raw(content.as_str()));
+            .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
         let text_lines = preview_text.lines.len() as u16;
         let inner_height = area.height.saturating_sub(2);
         let scroll_y = text_lines.saturating_sub(inner_height);
+        let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
         let preview = Paragraph::new(preview_text)
             .block(
                 Block::default()
-                    .title(format!("{SELECTED_ICON}Preview: {name}"))
+                    .title(format!("{SELECTED_ICON}{title}"))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Gray)),
             )
@@ -232,20 +242,22 @@ fn draw_preview_panes(
         .constraints(constraints)
         .split(area);
 
-    for (i, (name, pane_id, content)) in preview_contents.iter().enumerate() {
-        let preview_text = content
+    for (i, entry) in preview_contents.iter().enumerate() {
+        let preview_text = entry
+            .content
             .as_str()
             .into_text()
-            .unwrap_or_else(|_| Text::raw(content.as_str()));
+            .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
         let text_lines = preview_text.lines.len() as u16;
         let inner_height = chunks[i].height.saturating_sub(2);
         let scroll_y = text_lines.saturating_sub(inner_height);
-        let is_focused = selected_pane_id == Some(pane_id.as_str());
+        let is_focused = selected_pane_id == Some(entry.pane_id.as_str());
         let title_prefix = if is_focused { SELECTED_ICON } else { "" };
+        let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
         let preview = Paragraph::new(preview_text)
             .block(
                 Block::default()
-                    .title(format!("{title_prefix}Preview: {name}"))
+                    .title(format!("{title_prefix}{title}"))
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::Gray)),
             )
@@ -557,6 +569,23 @@ mod tests {
     #[test]
     fn test_selected_icon_is_not_empty() {
         assert!(!SELECTED_ICON.is_empty());
+    }
+
+    // --- preview_title tests ---
+
+    #[test]
+    fn test_preview_title_with_title() {
+        assert_eq!(preview_title("crmux", "%1", &Some("development".to_string())), "crmux - development");
+    }
+
+    #[test]
+    fn test_preview_title_without_title() {
+        assert_eq!(preview_title("crmux", "%1", &None), "crmux - %1");
+    }
+
+    #[test]
+    fn test_preview_title_with_empty_title() {
+        assert_eq!(preview_title("crmux", "%1", &Some("".to_string())), "crmux - %1");
     }
 
     // --- footer_spans tests ---

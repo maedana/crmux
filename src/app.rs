@@ -16,7 +16,7 @@ use std::time::Duration;
 use tmux_claude_state::monitor::MonitorState;
 
 use crate::event_handler::{self, Action};
-use crate::state::AppState;
+use crate::state::{AppState, PreviewEntry};
 use crate::ui;
 
 /// Run the TUI application.
@@ -80,23 +80,31 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
         if marked.is_empty() {
             // No marked sessions: show the selected session
             if let Some(session) = app_state.selected_session() {
-                let name = session.project_name.clone();
-                let pane_id = session.pane_id.clone();
-                let content = tmux_claude_state::tmux::capture_pane_with_ansi(&pane_id);
-                app_state.preview_contents = vec![(name, pane_id, content)];
+                let content = tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id);
+                app_state.preview_contents = vec![PreviewEntry {
+                    name: session.project_name.clone(),
+                    pane_id: session.pane_id.clone(),
+                    title: session.title.clone(),
+                    content,
+                }];
             } else {
                 app_state.preview_contents.clear();
             }
         } else {
             // Show all marked sessions
-            let pairs: Vec<(String, String, String)> = marked
+            let entries: Vec<PreviewEntry> = marked
                 .iter()
                 .map(|s| {
                     let content = tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id);
-                    (s.project_name.clone(), s.pane_id.clone(), content)
+                    PreviewEntry {
+                        name: s.project_name.clone(),
+                        pane_id: s.pane_id.clone(),
+                        title: s.title.clone(),
+                        content,
+                    }
                 })
                 .collect();
-            app_state.preview_contents = pairs;
+            app_state.preview_contents = entries;
         }
 
         // Draw TUI
