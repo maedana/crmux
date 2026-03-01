@@ -153,7 +153,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 "-- TITLE --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | Enter:Save Esc:Cancel"));
+            spans.push(Span::raw(" | C-o:Save&Exit"));
         }
     }
     spans

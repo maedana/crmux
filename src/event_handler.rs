@@ -80,16 +80,7 @@ fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
 
 fn handle_title_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     match code {
-        KeyCode::Esc => {
-            state.input_buffer.clear();
-            state.input_mode = InputMode::Normal;
-            Action::Continue
-        }
-        KeyCode::Enter | KeyCode::Char('d') if modifiers.contains(KeyModifiers::CONTROL) => {
-            save_title(state);
-            Action::Continue
-        }
-        KeyCode::Enter => {
+        KeyCode::Char('o') if modifiers.contains(KeyModifiers::CONTROL) => {
             save_title(state);
             Action::Continue
         }
@@ -412,78 +403,53 @@ mod tests {
     // --- Title mode tests ---
 
     #[test]
-    fn test_title_ctrl_enter_stores() {
+    fn test_title_ctrl_o_saves_and_exits() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Title;
-        state.input_buffer = "refactoring auth".to_string();
+        state.input_buffer = "new title".to_string();
         let action = handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Enter, KeyModifiers::CONTROL),
+            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
             &mut state,
         );
         assert_eq!(action, Action::Continue);
         assert_eq!(state.input_mode, InputMode::Normal);
         assert!(state.input_buffer.is_empty());
-        assert_eq!(
-            state.sessions[0].title,
-            Some("refactoring auth".to_string())
-        );
+        assert_eq!(state.sessions[0].title, Some("new title".to_string()));
     }
 
     #[test]
-    fn test_title_ctrl_d_stores() {
-        let mut state = make_state_with_session();
-        state.input_mode = InputMode::Title;
-        state.input_buffer = "bug fix".to_string();
-        handle_key_event(
-            &make_key_event_with_modifiers(KeyCode::Char('d'), KeyModifiers::CONTROL),
-            &mut state,
-        );
-        assert_eq!(state.input_mode, InputMode::Normal);
-        assert_eq!(state.sessions[0].title, Some("bug fix".to_string()));
-    }
-
-    #[test]
-    fn test_title_empty_stores_none() {
+    fn test_title_ctrl_o_empty_stores_none() {
         let mut state = make_state_with_session();
         state.sessions[0].title = Some("old".to_string());
         state.input_mode = InputMode::Title;
         state.input_buffer.clear();
-        handle_key_event(&make_key_event(KeyCode::Enter), &mut state);
+        handle_key_event(
+            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            &mut state,
+        );
         assert_eq!(state.sessions[0].title, None);
     }
 
     #[test]
-    fn test_title_whitespace_only_stores_none() {
+    fn test_title_ctrl_o_whitespace_only_stores_none() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Title;
         state.input_buffer = "  \t  ".to_string();
-        handle_key_event(&make_key_event(KeyCode::Enter), &mut state);
+        handle_key_event(
+            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            &mut state,
+        );
         assert_eq!(state.sessions[0].title, None);
     }
 
     #[test]
-    fn test_title_esc_cancels() {
-        let mut state = make_state_with_session();
-        state.sessions[0].title = Some("original".to_string());
-        state.input_mode = InputMode::Title;
-        state.input_buffer = "new title".to_string();
-        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
-        assert_eq!(state.input_mode, InputMode::Normal);
-        assert!(state.input_buffer.is_empty());
-        // title should remain unchanged
-        assert_eq!(state.sessions[0].title, Some("original".to_string()));
-    }
-
-    #[test]
-    fn test_title_enter_stores() {
+    fn test_title_enter_stays_in_title_mode() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Title;
         state.input_buffer = "abc".to_string();
         let action = handle_key_event(&make_key_event(KeyCode::Enter), &mut state);
         assert_eq!(action, Action::Continue);
-        assert_eq!(state.input_mode, InputMode::Normal);
-        assert!(state.input_buffer.is_empty());
-        assert_eq!(state.sessions[0].title, Some("abc".to_string()));
+        assert_eq!(state.input_mode, InputMode::Title);
     }
 
     #[test]

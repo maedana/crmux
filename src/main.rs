@@ -22,8 +22,7 @@ Keybindings (Input mode):
   Any other key  Forwarded to the tmux pane via send-keys
 
 Keybindings (Title mode):
-  Enter          Save the title and return to normal mode
-  Esc            Cancel and return to normal mode
+  Ctrl+o         Save and return to normal mode
   Backspace      Delete the last character")]
 struct Cli {}
 
