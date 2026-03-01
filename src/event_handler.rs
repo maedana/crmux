@@ -28,7 +28,7 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
 
 fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
     match code {
-        KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
+        KeyCode::Char('q') => Action::Quit,
         KeyCode::Char('j') | KeyCode::Down => {
             state.select_next();
             Action::Continue
@@ -220,10 +220,10 @@ mod tests {
     }
 
     #[test]
-    fn test_quit_on_esc() {
+    fn test_esc_continues_in_normal_mode() {
         let mut state = AppState::new(None);
         let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
-        assert_eq!(action, Action::Quit);
+        assert_eq!(action, Action::Continue);
     }
 
     #[test]
