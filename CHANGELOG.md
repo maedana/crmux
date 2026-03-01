@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0
+
 ### Added
 - Floating help popup on `?` key with keybinding reference
 - Vim-style mode indicator in footer with persistent app name
