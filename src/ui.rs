@@ -13,6 +13,8 @@ use crate::state::{InputMode, ManagedSession};
 const STALE_MIN_SECS: u64 = 5;
 const STALE_MAX_SECS: u64 = 15;
 
+const SELECTED_ICON: &str = "> ";
+
 /// Determine if a session should pulse based on its state and elapsed time.
 pub fn should_pulse(state: &ClaudeState, elapsed_secs: u64) -> bool {
     matches!(state, ClaudeState::WaitingForApproval)
@@ -277,25 +279,8 @@ fn draw_sessions_list(
 
         let text_color = color;
         let mark_indicator = if session.marked { "* " } else { "  " };
-        let spans = vec![
-            Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled(
-                &session.project_name,
-                Style::default()
-                    .fg(text_color)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::raw(" "),
-            Span::styled(label, Style::default().fg(text_color)),
-            Span::raw(" "),
-            Span::styled(elapsed, Style::default().fg(text_color)),
-        ];
 
-        let border_style = if is_selected {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default().fg(color)
-        };
+        let border_style = Style::default().fg(color);
 
         let bg_style = if is_pulsing {
             Style::default().bg(pulse_bg_color(state_color(&session.state)))
@@ -305,7 +290,28 @@ fn draw_sessions_list(
             Style::default()
         };
 
-        let paragraph = Paragraph::new(Line::from(spans))
+        let icon = if is_selected {
+            Span::raw(SELECTED_ICON)
+        } else {
+            Span::raw("  ")
+        };
+
+        let spans = vec![
+            icon,
+            Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                &session.project_name,
+                Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" "),
+            Span::styled(label, Style::default().fg(text_color)),
+            Span::raw(" "),
+            Span::styled(elapsed, Style::default().fg(text_color)),
+        ];
+
+        let paragraph = Paragraph::new(Line::from(spans));
+
+        let paragraph = paragraph
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -440,6 +446,11 @@ mod tests {
     fn test_pulse_bg_color_returns_rgb() {
         let result = pulse_bg_color(Color::LightRed);
         assert!(matches!(result, Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_selected_icon_is_not_empty() {
+        assert!(!SELECTED_ICON.is_empty());
     }
 
     #[test]
