@@ -29,7 +29,11 @@ Keybindings (Input mode):
   Ctrl+d         Same as Ctrl+Enter (universal fallback)
   Enter          Insert a newline in the input buffer
   Esc            Cancel input and return to normal mode
-  Backspace      Delete the last character")]
+  Backspace      Delete the last character
+
+MCP Integration:
+  Add to Claude Code's MCP servers to display plan titles in the sidebar:
+    claude mcp add --transport stdio --scope user crmux -- crmux mcp")]
 struct Cli {
     #[command(subcommand)]
     command: Option<Command>,

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Add MCP server (`crmux mcp`) for plan notification via Unix socket IPC
+- Display plan titles on session card bottom borders in sidebar
 - Pulse animation for WaitingForApproval (continuous) and stale Idle (5-15s window) sessions
 - Fixed poll interval to 50ms for smoother rendering
 - Add repository field to Cargo.toml for crates.io
