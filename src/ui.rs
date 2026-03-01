@@ -64,14 +64,6 @@ fn pulse_bg_color(base: Color) -> Color {
     )
 }
 
-/// Check if any session in the slice is currently pulsing.
-pub fn has_pulsing_sessions(sessions: &[ManagedSession]) -> bool {
-    sessions.iter().any(|s| {
-        let elapsed = s.state_changed_at.elapsed().as_secs();
-        should_pulse(&s.state, elapsed)
-    })
-}
-
 /// Format elapsed time since an `Instant` into a human-readable string.
 pub fn format_elapsed(since: Instant) -> String {
     let secs = since.elapsed().as_secs();

@@ -111,13 +111,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             );
         })?;
 
-        // Shorten poll interval when sessions are pulsing for smooth animation
-        let poll_ms = if ui::has_pulsing_sessions(&app_state.sessions) {
-            50
-        } else {
-            200
-        };
-        if event::poll(Duration::from_millis(poll_ms))? {
+        if event::poll(Duration::from_millis(50))? {
             let ev = event::read()?;
             match event_handler::handle_key_event(&ev, &mut app_state) {
                 Action::Quit => return Ok(()),
