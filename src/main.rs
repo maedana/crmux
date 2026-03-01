@@ -15,14 +15,11 @@ Keybindings (Normal mode):
   Enter          Switch tmux focus to the selected session's pane
   i              Enter input mode (type a prompt to send to the session)
   e              Enter title mode (set a title for the session)
-  q / Esc        Quit crmux
+  q              Quit crmux
 
 Keybindings (Input mode):
-  Ctrl+Enter     Send the typed text to the session and return to normal mode
-  Ctrl+d         Same as Ctrl+Enter (universal fallback)
-  Enter          Insert a newline in the input buffer
-  Esc            Cancel input and return to normal mode
-  Backspace      Delete the last character
+  Ctrl+o         Return to normal mode
+  Any other key  Forwarded to the tmux pane via send-keys
 
 Keybindings (Title mode):
   Enter          Save the title and return to normal mode

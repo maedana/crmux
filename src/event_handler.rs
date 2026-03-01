@@ -66,7 +66,7 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
 
 fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     match code {
-        KeyCode::Esc => {
+        KeyCode::Char('o') if modifiers.contains(KeyModifiers::CONTROL) => {
             state.input_mode = InputMode::Normal;
             Action::Continue
         }
@@ -162,6 +162,7 @@ fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
         KeyCode::PageDown => Some("PageDown"),
         KeyCode::BackTab => Some("BTab"),
         KeyCode::Delete => Some("DC"),
+        KeyCode::Esc => Some("Escape"),
         KeyCode::Insert => Some("IC"),
         _ => None,
     }
@@ -314,12 +315,24 @@ mod tests {
     // --- Input mode tests (passthrough) ---
 
     #[test]
-    fn test_input_mode_esc_returns_to_normal() {
+    fn test_input_mode_ctrl_o_returns_to_normal() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Input;
+        let action = handle_key_event(
+            &make_key_event_with_modifiers(KeyCode::Char('o'), KeyModifiers::CONTROL),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_input_mode_esc_stays_in_input() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Input;
         let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
         assert_eq!(action, Action::Continue);
-        assert_eq!(state.input_mode, InputMode::Normal);
+        assert_eq!(state.input_mode, InputMode::Input);
     }
 
     #[test]

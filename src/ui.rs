@@ -128,7 +128,7 @@ pub fn draw(
     // Footer: app name + instructions (full width)
     let footer_text = match input_mode {
         InputMode::Title => "Title | Enter:Save Esc:Cancel",
-        InputMode::Input => "Input | Esc:Back",
+        InputMode::Input => "Input | C-o:Back",
         InputMode::Normal => "crmux | j/k:Nav Space:Mark Enter:Switch i:Input e:Edit q:Quit",
     };
     let instructions = Paragraph::new(footer_text)
