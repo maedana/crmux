@@ -207,12 +207,17 @@ fn draw_preview_panes(
             .as_str()
             .into_text()
             .unwrap_or_else(|_| Text::raw(content.as_str()));
-        let preview = Paragraph::new(preview_text).block(
-            Block::default()
-                .title(format!("Preview: {name}"))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Gray)),
-        );
+        let text_lines = preview_text.lines.len() as u16;
+        let inner_height = area.height.saturating_sub(2);
+        let scroll_y = text_lines.saturating_sub(inner_height);
+        let preview = Paragraph::new(preview_text)
+            .block(
+                Block::default()
+                    .title(format!("Preview: {name}"))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray)),
+            )
+            .scroll((scroll_y, 0));
         f.render_widget(preview, area);
         return;
     }
@@ -235,12 +240,17 @@ fn draw_preview_panes(
             .as_str()
             .into_text()
             .unwrap_or_else(|_| Text::raw(content.as_str()));
-        let preview = Paragraph::new(preview_text).block(
-            Block::default()
-                .title(format!("Preview: {name}"))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Gray)),
-        );
+        let text_lines = preview_text.lines.len() as u16;
+        let inner_height = chunks[i].height.saturating_sub(2);
+        let scroll_y = text_lines.saturating_sub(inner_height);
+        let preview = Paragraph::new(preview_text)
+            .block(
+                Block::default()
+                    .title(format!("Preview: {name}"))
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::Gray)),
+            )
+            .scroll((scroll_y, 0));
         f.render_widget(preview, chunks[i]);
     }
 }
