@@ -322,7 +322,7 @@ fn draw_sessions_list(
         return;
     }
 
-    let constraints: Vec<Constraint> = sessions.iter().map(|_| Constraint::Length(4)).collect();
+    let constraints: Vec<Constraint> = sessions.iter().map(|_| Constraint::Length(3)).collect();
 
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -366,10 +366,7 @@ fn draw_sessions_list(
             ),
         ]);
 
-        let indicator_line = Line::from(vec![
-            icon,
-            Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        ]);
+        let mark_span = Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
 
         let status_line = Line::from(vec![
             Span::styled(label, Style::default().fg(text_color)),
@@ -377,31 +374,34 @@ fn draw_sessions_list(
             Span::styled(elapsed, Style::default().fg(text_color)),
         ]);
         let is_editing_title = is_selected && input_mode == InputMode::Title;
-        let title_line = if is_editing_title {
-            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + indent
+        let combined_line = if is_editing_title {
+            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + icon + mark
             let (display_text, text_color) = if input_buffer.is_empty() {
                 ("Type a title".to_string(), Color::DarkGray)
             } else {
                 (truncate_title(input_buffer, max_width), Color::Yellow)
             };
-            Line::from(Span::styled(
-                format!("    {display_text}"),
-                Style::default().fg(text_color),
-            ))
+            Line::from(vec![
+                icon,
+                mark_span,
+                Span::styled(display_text, Style::default().fg(text_color)),
+            ])
         } else if let Some(ref title) = session.title {
-            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + indent
+            let max_width = layout[idx].width.saturating_sub(6) as usize; // borders + icon + mark
             let truncated = truncate_title(title, max_width);
-            Line::from(Span::styled(
-                format!("    {truncated}"),
-                Style::default().fg(TITLE_COLOR),
-            ))
+            Line::from(vec![
+                icon,
+                mark_span,
+                Span::styled(truncated, Style::default().fg(TITLE_COLOR)),
+            ])
         } else {
-            Line::from(Span::styled(
-                "    Press e to edit title",
-                Style::default().fg(TITLE_COLOR),
-            ))
+            Line::from(vec![
+                icon,
+                mark_span,
+                Span::styled("Press e to edit title", Style::default().fg(TITLE_COLOR)),
+            ])
         };
-        let paragraph = Paragraph::new(vec![indicator_line, title_line]);
+        let paragraph = Paragraph::new(vec![combined_line]);
 
         let card_border_style = if is_editing_title {
             Style::default().fg(Color::Yellow)
@@ -425,7 +425,7 @@ fn draw_sessions_list(
             // Cursor on the title line (2nd line = inner.y + 1), after "    " prefix + buffer text
             #[allow(clippy::cast_possible_truncation)]
             let cursor_x = inner.x + 4 + input_buffer.chars().count().min((inner.width.saturating_sub(4)) as usize) as u16;
-            let cursor_y = inner.y + 1;
+            let cursor_y = inner.y;
             f.set_cursor_position((cursor_x, cursor_y));
         }
     }
