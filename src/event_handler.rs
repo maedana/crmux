@@ -165,6 +165,7 @@ fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
         KeyCode::End => Some("End"),
         KeyCode::PageUp => Some("PageUp"),
         KeyCode::PageDown => Some("PageDown"),
+        KeyCode::BackTab => Some("BTab"),
         KeyCode::Delete => Some("DC"),
         KeyCode::Insert => Some("IC"),
         _ => None,
@@ -347,7 +348,7 @@ mod tests {
     fn test_input_mode_special_keys_stay_in_input() {
         let mut state = make_state_with_session();
         state.input_mode = InputMode::Input;
-        for key in [KeyCode::Backspace, KeyCode::Tab, KeyCode::Left, KeyCode::Right] {
+        for key in [KeyCode::Backspace, KeyCode::Tab, KeyCode::BackTab, KeyCode::Left, KeyCode::Right] {
             let action = handle_key_event(&make_key_event(key), &mut state);
             assert_eq!(action, Action::Continue);
             assert_eq!(state.input_mode, InputMode::Input);
