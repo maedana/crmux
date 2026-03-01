@@ -127,8 +127,6 @@ mod tests {
             state: ClaudeState::Idle,
             state_changed_at: Instant::now(),
             marked: false,
-            plan_title: None,
-            plan_path: None,
         });
         state
     }

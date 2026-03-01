@@ -1,18 +1,10 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::env;
 
 mod app;
 mod event_handler;
-mod mcp;
-mod socket;
 mod state;
 mod ui;
-
-#[derive(Subcommand)]
-enum Command {
-    /// Run as an MCP server (stdio JSON-RPC)
-    Mcp,
-}
 
 #[derive(Parser)]
 #[command(version, about, after_help = "\
@@ -29,33 +21,19 @@ Keybindings (Input mode):
   Ctrl+d         Same as Ctrl+Enter (universal fallback)
   Enter          Insert a newline in the input buffer
   Esc            Cancel input and return to normal mode
-  Backspace      Delete the last character
-
-MCP Integration:
-  Add to Claude Code's MCP servers to display plan titles in the sidebar:
-    claude mcp add --transport stdio --scope user crmux -- crmux mcp")]
-struct Cli {
-    #[command(subcommand)]
-    command: Option<Command>,
-}
+  Backspace      Delete the last character")]
+struct Cli {}
 
 fn main() {
-    let cli = Cli::parse();
+    let _cli = Cli::parse();
 
-    match cli.command {
-        Some(Command::Mcp) => {
-            mcp::run_mcp_server();
-        }
-        None => {
-            if env::var("TMUX").is_err() {
-                eprintln!("crmux must be run inside tmux");
-                std::process::exit(1);
-            }
+    if env::var("TMUX").is_err() {
+        eprintln!("crmux must be run inside tmux");
+        std::process::exit(1);
+    }
 
-            if let Err(e) = app::run() {
-                eprintln!("crmux error: {e}");
-                std::process::exit(1);
-            }
-        }
+    if let Err(e) = app::run() {
+        eprintln!("crmux error: {e}");
+        std::process::exit(1);
     }
 }

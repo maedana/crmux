@@ -64,31 +64,6 @@ crmux
 | `Esc` | Cancel input and return to normal mode |
 | `Backspace` | Delete the last character |
 
-## MCP Integration
-
-crmux includes a built-in MCP server that allows Claude Code sessions to report their current plan titles. Plan titles are displayed on the bottom border of each session card in the sidebar.
-
-### Setup
-
-```sh
-claude mcp add --transport stdio --scope user crmux -- crmux mcp
-```
-
-### Architecture
-
-```
-┌──────────────────┐     stdio (JSON-RPC)     ┌─────────────────┐
-│  Claude Code #1  │ ──── MCP tools/call ────▶ │  crmux mcp      │ ─┐
-│  Claude Code #2  │ ──── MCP tools/call ────▶ │  crmux mcp      │ ─┤ Unix socket
-└──────────────────┘                           └─────────────────┘  │
-                                                                    ▼
-                                               ┌─────────────────┐
-                                               │  crmux (TUI)    │ ← /tmp/crmux.sock
-                                               └─────────────────┘
-```
-
-Each Claude Code session launches `crmux mcp` as a stdio MCP server. When a plan is created or updated, the `notify_plan` tool sends the plan title via Unix socket to the running crmux TUI.
-
 ## License
 
 MIT
