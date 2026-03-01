@@ -40,18 +40,6 @@ fn pulse_factor() -> f64 {
     f64::midpoint((t * 16.0).sin(), 1.0) // 0.0 ~ 1.0
 }
 
-/// Calculate a pulsing foreground color by modulating base color brightness with a sine wave.
-fn pulse_color(base: Color) -> Color {
-    let brightness = pulse_factor().mul_add(0.7, 0.3); // 0.3 ~ 1.0
-    let (r, g, b) = color_to_rgb(base);
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    Color::Rgb(
-        (f64::from(r) * brightness) as u8,
-        (f64::from(g) * brightness) as u8,
-        (f64::from(b) * brightness) as u8,
-    )
-}
-
 /// Calculate a pulsing background color (dimmed version of the base color).
 fn pulse_bg_color(base: Color) -> Color {
     let intensity = pulse_factor() * 0.25; // 0.0 ~ 0.25
@@ -283,11 +271,7 @@ fn draw_sessions_list(
         let is_selected = idx == selected_index;
         let elapsed_secs = session.state_changed_at.elapsed().as_secs();
         let is_pulsing = should_pulse(&session.state, elapsed_secs);
-        let color = if is_pulsing {
-            pulse_color(state_color(&session.state))
-        } else {
-            state_color(&session.state)
-        };
+        let color = state_color(&session.state);
         let elapsed = format_elapsed(session.state_changed_at);
         let label = state_label(&session.state);
 
@@ -450,29 +434,6 @@ mod tests {
         assert_eq!(color_to_rgb(Color::White), (255, 255, 255));
     }
 
-    // --- pulse_color tests ---
-
-    #[test]
-    fn test_pulse_color_returns_rgb() {
-        let result = pulse_color(Color::LightRed);
-        assert!(matches!(result, Color::Rgb(_, _, _)));
-    }
-
-    #[test]
-    fn test_pulse_color_within_brightness_range() {
-        // The pulse color should have components <= the base color
-        let base = Color::White; // (255, 255, 255)
-        let result = pulse_color(base);
-        if let Color::Rgb(r, g, b) = result {
-            // brightness ranges from 0.3 to 1.0, so min component is ~76
-            assert!(r >= 76, "r={r} out of expected range");
-            assert!(g >= 76, "g={g} out of expected range");
-            assert!(b >= 76, "b={b} out of expected range");
-        } else {
-            panic!("Expected Color::Rgb");
-        }
-    }
-
     // --- pulse_bg_color tests ---
 
     #[test]
@@ -482,15 +443,14 @@ mod tests {
     }
 
     #[test]
-    fn test_pulse_bg_color_is_dimmer_than_fg() {
-        // bg intensity tops at 0.25, fg at 1.0, so bg should always be <= fg
-        let base = Color::LightRed;
-        if let (Color::Rgb(fr, fg, fb), Color::Rgb(br, bg, bb)) =
-            (pulse_color(base), pulse_bg_color(base))
-        {
-            assert!(br <= fr, "bg r={br} > fg r={fr}");
-            assert!(bg <= fg, "bg g={bg} > fg g={fg}");
-            assert!(bb <= fb, "bg b={bb} > fg b={fb}");
+    fn test_pulse_bg_color_within_intensity_range() {
+        // bg intensity ranges from 0.0 to 0.25
+        let base = Color::White; // (255, 255, 255)
+        let result = pulse_bg_color(base);
+        if let Color::Rgb(r, g, b) = result {
+            assert!(r <= 63, "r={r} exceeds max intensity");
+            assert!(g <= 63, "g={g} exceeds max intensity");
+            assert!(b <= 63, "b={b} exceeds max intensity");
         } else {
             panic!("Expected Color::Rgb");
         }
