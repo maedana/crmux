@@ -6,6 +6,9 @@ Inspired by [cmux](https://www.cmux.dev). crmux brings a similar multi-session m
 
 Monitor multiple Claude Code sessions from a single sidebar, preview their output, and quickly switch between them.
 
+## Demo
+![gif][1]
+
 ## Requirements
 
 - tmux
@@ -76,3 +79,5 @@ Input mode uses tmux `send-keys` to forward keystrokes, which has inherent limit
 ## License
 
 MIT
+
+[1]: https://raw.githubusercontent.com/maedana/crmux/main/demos/demo.gif
