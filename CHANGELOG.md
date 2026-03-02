@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.3.2
+
+### Added
+- Paste forwarding support via bracketed paste (text paste works in Input and Broadcast modes)
+
 ## 0.3.0
 
 ### Added
