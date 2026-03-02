@@ -145,60 +145,29 @@ fn handle_paste_event(text: &str, state: &AppState) -> Action {
     match state.input_mode {
         InputMode::Input => {
             if let Some(pane_id) = state.selected_pane_id() {
-                send_paste_to_pane(pane_id, text);
+                send_paste_to_panes(&[pane_id], text);
             }
         }
         InputMode::Broadcast => {
             let pane_ids = state.marked_pane_ids();
-            if !pane_ids.is_empty() {
-                // Set buffer once, paste to each pane, then delete buffer
-                let _ = Command::new("tmux")
-                    .args(["set-buffer", "-b", "crmux-paste", "--", text])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .output();
-                for pane_id in &pane_ids {
-                    let _ = Command::new("tmux")
-                        .args(["paste-buffer", "-b", "crmux-paste", "-t", pane_id, "-p"])
-                        .stdin(Stdio::null())
-                        .stdout(Stdio::null())
-                        .stderr(Stdio::null())
-                        .output();
-                }
-                let _ = Command::new("tmux")
-                    .args(["delete-buffer", "-b", "crmux-paste"])
-                    .stdin(Stdio::null())
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .output();
-            }
+            let refs: Vec<&str> = pane_ids.iter().map(|s| s.as_str()).collect();
+            send_paste_to_panes(&refs, text);
         }
         InputMode::Normal | InputMode::Title => {}
     }
     Action::Continue
 }
 
-/// Send pasted text to a single tmux pane using set-buffer + paste-buffer -p.
-fn send_paste_to_pane(pane_id: &str, text: &str) {
-    let _ = Command::new("tmux")
-        .args(["set-buffer", "-b", "crmux-paste", "--", text])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    let _ = Command::new("tmux")
-        .args(["paste-buffer", "-b", "crmux-paste", "-t", pane_id, "-p"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    let _ = Command::new("tmux")
-        .args(["delete-buffer", "-b", "crmux-paste"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
+/// Send pasted text to tmux pane(s) using set-buffer + paste-buffer -p.
+fn send_paste_to_panes(pane_ids: &[&str], text: &str) {
+    if pane_ids.is_empty() {
+        return;
+    }
+    run_tmux(&["set-buffer", "-b", "crmux-paste", "--", text]);
+    for pane_id in pane_ids {
+        run_tmux(&["paste-buffer", "-b", "crmux-paste", "-t", pane_id, "-p"]);
+    }
+    run_tmux(&["delete-buffer", "-b", "crmux-paste"]);
 }
 
 /// Encode a key event into tmux send-keys arguments and send to the given pane.
@@ -261,17 +230,21 @@ fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
     }
 }
 
-/// Run `tmux send-keys -t <pane_id> <extra_args>` and wait for completion.
-fn run_send_keys(pane_id: &str, extra_args: &[&str]) {
+/// Run a tmux command with the given arguments, suppressing all I/O.
+fn run_tmux(args: &[&str]) {
     let _ = Command::new("tmux")
-        .arg("send-keys")
-        .arg("-t")
-        .arg(pane_id)
-        .args(extra_args)
+        .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .output();
+}
+
+/// Run `tmux send-keys -t <pane_id> <extra_args>` and wait for completion.
+fn run_send_keys(pane_id: &str, extra_args: &[&str]) {
+    let mut args = vec!["send-keys", "-t", pane_id];
+    args.extend(extra_args);
+    run_tmux(&args);
 }
 
 #[cfg(test)]
