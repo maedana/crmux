@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.3.0
+
+### Added
+- Broadcast input mode (`I` key) to send keys to all marked sessions simultaneously
+
 ## 0.2.1
 
 ### Changed
