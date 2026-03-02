@@ -1,7 +1,8 @@
 use crossterm::{
     event::{
-        self, DisableMouseCapture, EnableMouseCapture, KeyboardEnhancementFlags,
-        PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+        self, DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste,
+        EnableMouseCapture, KeyboardEnhancementFlags, PopKeyboardEnhancementFlags,
+        PushKeyboardEnhancementFlags,
     },
     execute,
     terminal::{
@@ -41,12 +42,16 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         )?;
     }
 
+    // Enable bracketed paste so pasted text arrives as Event::Paste
+    execute!(stdout, EnableBracketedPaste)?;
+
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let result = run_event_loop(&mut terminal, &monitor_state, own_pid);
 
     // Terminal cleanup
+    execute!(terminal.backend_mut(), DisableBracketedPaste)?;
     if keyboard_enhancement {
         execute!(terminal.backend_mut(), PopKeyboardEnhancementFlags)?;
     }

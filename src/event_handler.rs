@@ -15,24 +15,26 @@ pub enum Action {
 
 /// Handle a keyboard event and return the appropriate action.
 pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
-    if let Event::Key(key) = *event {
-        if state.show_help {
-            return match key.code {
-                KeyCode::Char('?') | KeyCode::Esc => {
-                    state.show_help = false;
-                    Action::Continue
-                }
-                _ => Action::Continue,
-            };
+    match event {
+        Event::Key(key) => {
+            if state.show_help {
+                return match key.code {
+                    KeyCode::Char('?') | KeyCode::Esc => {
+                        state.show_help = false;
+                        Action::Continue
+                    }
+                    _ => Action::Continue,
+                };
+            }
+            match state.input_mode {
+                InputMode::Normal => handle_normal_mode(key.code, state),
+                InputMode::Input => handle_input_mode(key.code, key.modifiers, state),
+                InputMode::Title => handle_title_mode(key.code, key.modifiers, state),
+                InputMode::Broadcast => handle_broadcast_mode(key.code, key.modifiers, state),
+            }
         }
-        match state.input_mode {
-            InputMode::Normal => handle_normal_mode(key.code, state),
-            InputMode::Input => handle_input_mode(key.code, key.modifiers, state),
-            InputMode::Title => handle_title_mode(key.code, key.modifiers, state),
-            InputMode::Broadcast => handle_broadcast_mode(key.code, key.modifiers, state),
-        }
-    } else {
-        Action::Continue
+        Event::Paste(text) => handle_paste_event(text, state),
+        _ => Action::Continue,
     }
 }
 
@@ -133,6 +135,70 @@ fn save_title(state: &mut AppState) {
     }
     state.input_buffer.clear();
     state.input_mode = InputMode::Normal;
+}
+
+/// Handle a paste event by forwarding pasted text to the appropriate tmux pane(s).
+fn handle_paste_event(text: &str, state: &AppState) -> Action {
+    if state.show_help {
+        return Action::Continue;
+    }
+    match state.input_mode {
+        InputMode::Input => {
+            if let Some(pane_id) = state.selected_pane_id() {
+                send_paste_to_pane(pane_id, text);
+            }
+        }
+        InputMode::Broadcast => {
+            let pane_ids = state.marked_pane_ids();
+            if !pane_ids.is_empty() {
+                // Set buffer once, paste to each pane, then delete buffer
+                let _ = Command::new("tmux")
+                    .args(["set-buffer", "-b", "crmux-paste", "--", text])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .output();
+                for pane_id in &pane_ids {
+                    let _ = Command::new("tmux")
+                        .args(["paste-buffer", "-b", "crmux-paste", "-t", pane_id, "-p"])
+                        .stdin(Stdio::null())
+                        .stdout(Stdio::null())
+                        .stderr(Stdio::null())
+                        .output();
+                }
+                let _ = Command::new("tmux")
+                    .args(["delete-buffer", "-b", "crmux-paste"])
+                    .stdin(Stdio::null())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .output();
+            }
+        }
+        InputMode::Normal | InputMode::Title => {}
+    }
+    Action::Continue
+}
+
+/// Send pasted text to a single tmux pane using set-buffer + paste-buffer -p.
+fn send_paste_to_pane(pane_id: &str, text: &str) {
+    let _ = Command::new("tmux")
+        .args(["set-buffer", "-b", "crmux-paste", "--", text])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let _ = Command::new("tmux")
+        .args(["paste-buffer", "-b", "crmux-paste", "-t", pane_id, "-p"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    let _ = Command::new("tmux")
+        .args(["delete-buffer", "-b", "crmux-paste"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
 }
 
 /// Encode a key event into tmux send-keys arguments and send to the given pane.
@@ -602,6 +668,61 @@ mod tests {
         state.input_mode = InputMode::Broadcast;
         handle_key_event(&make_key_event(KeyCode::Char('h')), &mut state);
         handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
+        assert!(state.input_buffer.is_empty());
+    }
+
+    // --- Paste event tests ---
+
+    fn make_paste_event(text: &str) -> Event {
+        Event::Paste(text.to_string())
+    }
+
+    #[test]
+    fn test_paste_ignored_in_normal_mode() {
+        let mut state = make_state_with_session();
+        let action = handle_key_event(&make_paste_event("hello\nworld"), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Normal);
+        assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_paste_ignored_in_title_mode() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Title;
+        state.input_buffer = "existing".to_string();
+        let action = handle_key_event(&make_paste_event("pasted text"), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Title);
+        assert_eq!(state.input_buffer, "existing");
+    }
+
+    #[test]
+    fn test_paste_ignored_during_help() {
+        let mut state = make_state_with_session();
+        state.show_help = true;
+        let action = handle_key_event(&make_paste_event("pasted text"), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(state.show_help);
+    }
+
+    #[test]
+    fn test_paste_in_input_mode_does_not_change_state() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Input;
+        let action = handle_key_event(&make_paste_event("hello\nworld"), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Input);
+        assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_paste_in_broadcast_mode_does_not_change_state() {
+        let mut state = make_state_with_marked_sessions();
+        state.input_mode = InputMode::Broadcast;
+        let action = handle_key_event(&make_paste_event("hello\nworld"), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Broadcast);
         assert!(state.input_buffer.is_empty());
     }
 }
