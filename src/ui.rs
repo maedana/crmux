@@ -154,7 +154,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch to tmux pane i:Input mode e:Title mode ?:Help q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -171,6 +171,14 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 Style::default().add_modifier(Modifier::BOLD),
             ));
             spans.push(Span::raw(" | Edit session title. Esc:Save&Exit"));
+        }
+        InputMode::Broadcast => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                "-- BROADCAST --",
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::raw(" | Keys sent to marked panes. Esc:Back"));
         }
     }
     spans
@@ -272,7 +280,8 @@ Keybindings (Normal mode):
   k / ↑          Move cursor up in session list
   Space          Mark for preview multiple tmux panes
   s              Switch to tmux pane
-  i              Enter input mode (type a prompt to send to the session)
+  i              Enter input mode (send keys to the selected session)
+  I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
   ?              Show this help
   q              Quit crmux
@@ -280,6 +289,10 @@ Keybindings (Normal mode):
 Keybindings (Input mode):
   Esc            Return to normal mode
   Any other key  Forwarded to the tmux pane via send-keys
+
+Keybindings (Broadcast mode):
+  Esc            Return to normal mode
+  Any other key  Forwarded to all marked panes via send-keys
 
 Keybindings (Title mode):
   Esc            Save and return to normal mode
@@ -662,6 +675,20 @@ mod tests {
         let spans = footer_spans(InputMode::Normal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("?:Help"), "Normal mode footer should contain '?:Help', got: {text}");
+    }
+
+    #[test]
+    fn test_footer_broadcast_mode_has_broadcast_indicator() {
+        let spans = footer_spans(InputMode::Broadcast);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("-- BROADCAST --"), "Broadcast mode footer should contain '-- BROADCAST --', got: {text}");
+    }
+
+    #[test]
+    fn test_footer_normal_mode_contains_broadcast_key() {
+        let spans = footer_spans(InputMode::Normal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("I:Input(marked)"), "Normal mode footer should contain 'I:Input(marked)', got: {text}");
     }
 
     #[test]

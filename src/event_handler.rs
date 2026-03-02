@@ -29,6 +29,7 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
             InputMode::Normal => handle_normal_mode(key.code, state),
             InputMode::Input => handle_input_mode(key.code, key.modifiers, state),
             InputMode::Title => handle_title_mode(key.code, key.modifiers, state),
+            InputMode::Broadcast => handle_broadcast_mode(key.code, key.modifiers, state),
         }
     } else {
         Action::Continue
@@ -56,6 +57,12 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
             }
             Action::Continue
         }
+        KeyCode::Char('I') => {
+            if !state.marked_pane_ids().is_empty() {
+                state.input_mode = InputMode::Broadcast;
+            }
+            Action::Continue
+        }
         KeyCode::Char('e') => {
             if let Some(session) = state.selected_session() {
                 state.input_buffer = session.title.clone().unwrap_or_default();
@@ -78,17 +85,22 @@ fn handle_normal_mode(code: KeyCode, state: &mut AppState) -> Action {
 }
 
 fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
-    match code {
-        KeyCode::Esc => {
-            state.input_mode = InputMode::Normal;
-            Action::Continue
-        }
+    if code == KeyCode::Esc {
+        state.input_mode = InputMode::Normal;
+    } else {
         // All other keys are forwarded to the tmux pane immediately
-        _ => {
-            send_key_to_pane(code, modifiers, state);
-            Action::Continue
-        }
+        send_key_to_pane(code, modifiers, state);
     }
+    Action::Continue
+}
+
+fn handle_broadcast_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
+    if code == KeyCode::Esc {
+        state.input_mode = InputMode::Normal;
+    } else {
+        send_key_to_marked_panes(code, modifiers, state);
+    }
+    Action::Continue
 }
 
 fn handle_title_mode(code: KeyCode, _modifiers: KeyModifiers, state: &mut AppState) -> Action {
@@ -123,12 +135,8 @@ fn save_title(state: &mut AppState) {
     state.input_mode = InputMode::Normal;
 }
 
-/// Send a single key event to the selected tmux pane immediately.
-fn send_key_to_pane(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
-    let Some(pane_id) = state.selected_pane_id() else {
-        return;
-    };
-
+/// Encode a key event into tmux send-keys arguments and send to the given pane.
+fn send_encoded_key(pane_id: &str, code: KeyCode, modifiers: KeyModifiers) {
     if modifiers.contains(KeyModifiers::CONTROL) {
         if let KeyCode::Char(c) = code {
             let key_name = format!("C-{c}");
@@ -147,6 +155,21 @@ fn send_key_to_pane(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
                 run_send_keys(pane_id, &[key_name]);
             }
         }
+    }
+}
+
+/// Send a single key event to the selected tmux pane immediately.
+fn send_key_to_pane(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
+    let Some(pane_id) = state.selected_pane_id() else {
+        return;
+    };
+    send_encoded_key(pane_id, code, modifiers);
+}
+
+/// Send a single key event to all marked tmux panes.
+fn send_key_to_marked_panes(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
+    for pane_id in state.marked_pane_ids() {
+        send_encoded_key(&pane_id, code, modifiers);
     }
 }
 
@@ -493,5 +516,92 @@ mod tests {
         let action = handle_key_event(&make_key_event(KeyCode::Char('q')), &mut state);
         assert_eq!(action, Action::Continue);
         assert!(state.show_help);
+    }
+
+    // --- Broadcast mode tests ---
+
+    fn make_state_with_marked_sessions() -> AppState {
+        use crate::state::ManagedSession;
+        let mut state = AppState::new(None);
+        state.sessions.push(ManagedSession {
+            pid: 100,
+            pane_id: "%1".to_string(),
+            project_name: "project-a".to_string(),
+            state: ClaudeState::Idle,
+            state_changed_at: Instant::now(),
+            marked: true,
+            title: None,
+        });
+        state.sessions.push(ManagedSession {
+            pid: 200,
+            pane_id: "%2".to_string(),
+            project_name: "project-b".to_string(),
+            state: ClaudeState::Idle,
+            state_changed_at: Instant::now(),
+            marked: false,
+            title: None,
+        });
+        state.sessions.push(ManagedSession {
+            pid: 300,
+            pane_id: "%3".to_string(),
+            project_name: "project-c".to_string(),
+            state: ClaudeState::Idle,
+            state_changed_at: Instant::now(),
+            marked: true,
+            title: None,
+        });
+        state
+    }
+
+    #[test]
+    fn test_shift_i_enters_broadcast_mode_with_marked_sessions() {
+        let mut state = make_state_with_marked_sessions();
+        let action = handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Broadcast);
+    }
+
+    #[test]
+    fn test_shift_i_does_nothing_without_marked_sessions() {
+        let mut state = make_state_with_session();
+        // session exists but none marked
+        let action = handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_shift_i_does_nothing_without_sessions() {
+        let mut state = AppState::new(None);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_broadcast_mode_esc_returns_to_normal() {
+        let mut state = make_state_with_marked_sessions();
+        state.input_mode = InputMode::Broadcast;
+        let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_broadcast_mode_q_does_not_quit() {
+        let mut state = make_state_with_marked_sessions();
+        state.input_mode = InputMode::Broadcast;
+        let action = handle_key_event(&make_key_event(KeyCode::Char('q')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Broadcast);
+    }
+
+    #[test]
+    fn test_broadcast_mode_keys_do_not_modify_buffer() {
+        let mut state = make_state_with_marked_sessions();
+        state.input_mode = InputMode::Broadcast;
+        handle_key_event(&make_key_event(KeyCode::Char('h')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
+        assert!(state.input_buffer.is_empty());
     }
 }
