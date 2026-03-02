@@ -59,7 +59,7 @@ Keybindings are shown in the app footer. Run `crmux -h` or press `?` in the app 
 - Auto-set session title based on the most recent plan mode content
 - More layout options for multi-preview (currently horizontal equal split only)
 - Broadcast prompt to all marked sessions at once
-- Session status summary in footer (e.g. Running 3 / Idle 2 / WaitingForApproval 1)
+- Session status summary in footer (e.g. Running 3 / Idle 2 / Approval 1)
 - Programmatic control from external tools (e.g. tmux-style subcommands, MCP server)
 
 ## Limitations
