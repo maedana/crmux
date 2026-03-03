@@ -414,11 +414,18 @@ fn draw_sessions_list(
 
         let mark_span = Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
 
-        let status_line = Line::from(vec![
-            Span::styled(label, Style::default().fg(text_color)),
-            Span::raw(" "),
-            Span::styled(elapsed, Style::default().fg(text_color)),
-        ]);
+        let mut status_spans = Vec::new();
+        if let Some(ref model) = session.model {
+            status_spans.push(Span::styled(
+                model.as_str(),
+                Style::default().fg(Color::DarkGray),
+            ));
+            status_spans.push(Span::raw(" "));
+        }
+        status_spans.push(Span::styled(label, Style::default().fg(text_color)));
+        status_spans.push(Span::raw(" "));
+        status_spans.push(Span::styled(elapsed, Style::default().fg(text_color)));
+        let status_line = Line::from(status_spans);
         let is_editing_title = is_selected && input_mode == InputMode::Title;
         let combined_line = if is_editing_title {
             let max_width = layout[idx].width.saturating_sub(4) as usize; // borders + mark

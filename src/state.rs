@@ -19,6 +19,10 @@ pub struct ManagedSession {
     pub marked: bool,
     /// User-defined title label for this session.
     pub title: Option<String>,
+    /// Claude Code `session_id` (from `SessionStart` hook).
+    pub session_id: Option<String>,
+    /// Model name (from `SessionStart` hook).
+    pub model: Option<String>,
 }
 
 /// Diff result from syncing with `MonitorState`.
@@ -144,6 +148,8 @@ impl AppState {
                     state_changed_at: session.state_changed_at,
                     marked: false,
                     title: None,
+                    session_id: None,
+                    model: None,
                 });
             }
         }
@@ -240,6 +246,18 @@ impl AppState {
             .collect()
     }
 
+    /// Handle an incoming RPC message, updating session metadata.
+    pub fn handle_rpc_message(&mut self, msg: &crate::rpc::RpcMessage) {
+        if msg.method == "session_start" {
+            let Some(pane_id) = msg.params.get("pane_id") else {
+                return;
+            };
+            if let Some(session) = self.sessions.iter_mut().find(|s| s.pane_id == *pane_id) {
+                session.session_id = msg.params.get("session_id").cloned();
+                session.model = msg.params.get("model").cloned();
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -789,5 +807,143 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor2);
         assert_eq!(app.sessions[0].pane_id, "%5");
+    }
+
+    // --- RPC message handling ---
+
+    #[test]
+    fn test_new_session_has_no_rpc_fields() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].session_id, None);
+        assert_eq!(app.sessions[0].model, None);
+    }
+
+    #[test]
+    fn test_handle_rpc_session_start() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let mut params = HashMap::new();
+        params.insert("pane_id".to_string(), "%1".to_string());
+        params.insert("session_id".to_string(), "sess-abc".to_string());
+        params.insert("model".to_string(), "claude-sonnet-4-6".to_string());
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params,
+        });
+
+        assert_eq!(app.sessions[0].session_id, Some("sess-abc".to_string()));
+        assert_eq!(app.sessions[0].model, Some("claude-sonnet-4-6".to_string()));
+    }
+
+    #[test]
+    fn test_handle_rpc_session_start_unknown_pane() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let mut params = HashMap::new();
+        params.insert("pane_id".to_string(), "%99".to_string());
+        params.insert("session_id".to_string(), "sess-xyz".to_string());
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params,
+        });
+
+        // Should not crash, and existing session should be unchanged
+        assert_eq!(app.sessions[0].session_id, None);
+    }
+
+    #[test]
+    fn test_handle_rpc_missing_pane_id() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let mut params = HashMap::new();
+        params.insert("session_id".to_string(), "sess-abc".to_string());
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params,
+        });
+
+        // Without pane_id, nothing should be updated
+        assert_eq!(app.sessions[0].session_id, None);
+    }
+
+    #[test]
+    fn test_handle_rpc_unknown_method() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let mut params = HashMap::new();
+        params.insert("pane_id".to_string(), "%1".to_string());
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "unknown_method".to_string(),
+            params,
+        });
+
+        // Unknown method should not change anything
+        assert_eq!(app.sessions[0].session_id, None);
+    }
+
+    #[test]
+    fn test_rpc_fields_preserved_on_sync() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+
+        let mut params = HashMap::new();
+        params.insert("pane_id".to_string(), "%1".to_string());
+        params.insert("session_id".to_string(), "sess-abc".to_string());
+        params.insert("model".to_string(), "opus".to_string());
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params,
+        });
+
+        // Re-sync with state change
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor2);
+
+        assert_eq!(app.sessions[0].session_id, Some("sess-abc".to_string()));
+        assert_eq!(app.sessions[0].model, Some("opus".to_string()));
     }
 }

@@ -64,7 +64,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let result = run_event_loop(&mut terminal, &monitor_state, own_pid);
+    let rpc_server = crate::rpc::RpcServer::start().ok();
+
+    let result = run_event_loop(&mut terminal, &monitor_state, own_pid, rpc_server.as_ref());
 
     // Terminal cleanup
     execute!(terminal.backend_mut(), DisableBracketedPaste)?;
@@ -87,6 +89,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     monitor_state: &Arc<Mutex<MonitorState>>,
     own_pid: u32,
+    rpc_server: Option<&crate::rpc::RpcServer>,
 ) -> io::Result<()> {
     let mut app_state = AppState::new(Some(own_pid));
 
@@ -94,6 +97,13 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
         // Sync with monitor state
         if let Ok(monitor) = monitor_state.lock() {
             app_state.sync_with_monitor(&monitor);
+        }
+
+        // Process RPC messages
+        if let Some(server) = rpc_server {
+            while let Some(msg) = server.try_recv() {
+                app_state.handle_rpc_message(&msg);
+            }
         }
 
         // Update preview contents

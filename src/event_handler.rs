@@ -309,6 +309,8 @@ mod tests {
             state_changed_at: Instant::now(),
             marked: false,
             title: None,
+            session_id: None,
+            model: None,
         });
         state
     }
@@ -618,6 +620,8 @@ mod tests {
             state_changed_at: Instant::now(),
             marked: true,
             title: None,
+            session_id: None,
+            model: None,
         });
         state.sessions.push(ManagedSession {
             pid: 200,
@@ -627,6 +631,8 @@ mod tests {
             state_changed_at: Instant::now(),
             marked: false,
             title: None,
+            session_id: None,
+            model: None,
         });
         state.sessions.push(ManagedSession {
             pid: 300,
@@ -636,6 +642,8 @@ mod tests {
             state_changed_at: Instant::now(),
             marked: true,
             title: None,
+            session_id: None,
+            model: None,
         });
         state
     }
