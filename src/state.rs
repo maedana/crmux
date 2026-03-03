@@ -48,6 +48,17 @@ pub struct ManagedSession {
     pub cwd: String,
     /// Current git branch name (if in a git repo).
     pub git_branch: Option<String>,
+    /// Automatically resolved title from Claude Code session metadata.
+    pub auto_title: Option<String>,
+}
+
+impl ManagedSession {
+    /// Return the display title: manual title takes priority over auto title.
+    pub fn display_title(&self) -> Option<&str> {
+        self.title
+            .as_deref()
+            .or(self.auto_title.as_deref())
+    }
 }
 
 /// Diff result from syncing with `MonitorState`.
@@ -180,6 +191,7 @@ impl AppState {
                     model: None,
                     cwd: session.pane.cwd.clone(),
                     git_branch: None,
+                    auto_title: None,
                 });
             }
         }
@@ -290,6 +302,19 @@ impl AppState {
             .filter(|s| s.marked)
             .map(|s| s.pane_id.clone())
             .collect()
+    }
+
+    /// Refresh auto titles for sessions that have `session_id` and no manual title.
+    pub fn refresh_auto_titles(&mut self) {
+        for session in &mut self.sessions {
+            if session.title.is_some() {
+                continue;
+            }
+            if let (Some(session_id), cwd) = (&session.session_id, &session.cwd) {
+                session.auto_title =
+                    crate::auto_title::resolve_auto_title(cwd, session_id);
+            }
+        }
     }
 
     /// Refresh git branch names for all sessions by running `git branch --show-current`.
@@ -1007,6 +1032,41 @@ mod tests {
 
         assert_eq!(app.sessions[0].session_id, Some("sess-abc".to_string()));
         assert_eq!(app.sessions[0].model, Some("opus".to_string()));
+    }
+
+    // --- display_title ---
+
+    #[test]
+    fn test_display_title_manual_over_auto() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].title = Some("manual".to_string());
+        app.sessions[0].auto_title = Some("auto".to_string());
+        assert_eq!(app.sessions[0].display_title(), Some("manual"));
+    }
+
+    #[test]
+    fn test_display_title_auto_when_no_manual() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].auto_title = Some("auto".to_string());
+        assert_eq!(app.sessions[0].display_title(), Some("auto"));
+    }
+
+    #[test]
+    fn test_display_title_none_when_both_empty() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].display_title(), None);
     }
 
     // --- cwd and git_branch ---

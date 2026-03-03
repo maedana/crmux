@@ -102,16 +102,22 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             app_state.sync_with_monitor(&monitor);
         }
 
-        // Refresh git branches periodically (every 5 seconds)
+        // Refresh git branches and auto titles periodically (every 5 seconds)
         if last_branch_refresh.elapsed() >= Duration::from_secs(5) {
             app_state.refresh_git_branches();
+            app_state.refresh_auto_titles();
             last_branch_refresh = std::time::Instant::now();
         }
 
         // Process RPC messages
         if let Some(server) = rpc_server {
+            let mut received_rpc = false;
             while let Some(msg) = server.try_recv() {
                 app_state.handle_rpc_message(&msg);
+                received_rpc = true;
+            }
+            if received_rpc {
+                app_state.refresh_auto_titles();
             }
         }
 
@@ -129,7 +135,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 app_state.preview_contents = vec![PreviewEntry {
                     name: session.project_name.clone(),
                     pane_id: session.pane_id.clone(),
-                    title: session.title.clone(),
+                    title: session.display_title().map(String::from),
                     content,
                 }];
             } else {
@@ -151,7 +157,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     PreviewEntry {
                         name: s.project_name.clone(),
                         pane_id: s.pane_id.clone(),
-                        title: s.title.clone(),
+                        title: s.display_title().map(String::from),
                         content,
                     }
                 })

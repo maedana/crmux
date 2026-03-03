@@ -2,6 +2,7 @@ use clap::Parser;
 use std::env;
 
 mod app;
+mod auto_title;
 mod event_handler;
 mod rpc;
 mod state;
