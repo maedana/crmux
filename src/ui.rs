@@ -153,7 +153,10 @@ pub fn draw(
 
 /// Build the footer spans: app name, optional vim-style mode indicator, and keybindings.
 fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
-    let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
+    let mut spans = vec![Span::styled(
+        concat!("crmux v", env!("CARGO_PKG_VERSION")),
+        Style::default().fg(Color::White),
+    )];
     match input_mode {
         InputMode::Normal => {
             spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title ?:Help q:Quit"));
@@ -640,7 +643,7 @@ mod tests {
     #[test]
     fn test_footer_normal_mode_starts_with_app_name() {
         let spans = footer_spans(InputMode::Normal);
-        assert_eq!(spans[0].content, "crmux");
+        assert!(spans[0].content.starts_with("crmux v"));
     }
 
     #[test]
@@ -653,7 +656,7 @@ mod tests {
     #[test]
     fn test_footer_input_mode_starts_with_app_name() {
         let spans = footer_spans(InputMode::Input);
-        assert_eq!(spans[0].content, "crmux");
+        assert!(spans[0].content.starts_with("crmux v"));
     }
 
     #[test]
@@ -666,7 +669,7 @@ mod tests {
     #[test]
     fn test_footer_title_mode_starts_with_app_name() {
         let spans = footer_spans(InputMode::Title);
-        assert_eq!(spans[0].content, "crmux");
+        assert!(spans[0].content.starts_with("crmux v"));
     }
 
     #[test]
