@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.4.0
+
 ### Added
 - Git branch display next to project name in sidebar (auto-refreshed every 5 seconds)
 - RPC support for receiving session metadata (model, session_id) from Claude Code hooks
