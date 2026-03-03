@@ -105,6 +105,7 @@ fn preview_title(name: &str, pane_id: &str, title: &Option<String>) -> String {
 }
 
 /// Draw the full TUI: session list (left) + preview pane (right).
+#[allow(clippy::too_many_arguments)]
 pub fn draw(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
@@ -113,6 +114,7 @@ pub fn draw(
     input_mode: InputMode,
     input_buffer: &str,
     show_help: bool,
+    preview_scroll: u16,
 ) {
     let size = f.area();
 
@@ -135,7 +137,7 @@ pub fn draw(
     let selected_pane_id = sessions
         .get(selected_index)
         .map(|s| s.pane_id.as_str());
-    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id);
+    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id, preview_scroll);
 
     // Footer: app name + mode indicator + keybindings (full width)
     let instructions = Paragraph::new(Line::from(footer_spans(input_mode)))
@@ -154,7 +156,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title ?:Help q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -192,8 +194,9 @@ fn draw_right_panel(
     _input_buffer: &str,
     area: ratatui::layout::Rect,
     selected_pane_id: Option<&str>,
+    preview_scroll: u16,
 ) {
-    draw_preview_panes(f, preview_contents, area, selected_pane_id);
+    draw_preview_panes(f, preview_contents, area, selected_pane_id, preview_scroll);
 }
 
 /// Draw one or more preview panes, splitting the area vertically.
@@ -202,6 +205,7 @@ fn draw_preview_panes(
     preview_contents: &[PreviewEntry],
     area: ratatui::layout::Rect,
     selected_pane_id: Option<&str>,
+    preview_scroll: u16,
 ) {
     if preview_contents.is_empty() {
         let preview = Paragraph::new("No session selected").block(
@@ -221,10 +225,16 @@ fn draw_preview_panes(
             .as_str()
             .into_text()
             .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
+        #[allow(clippy::cast_possible_truncation)]
         let text_lines = preview_text.lines.len() as u16;
         let inner_height = area.height.saturating_sub(2);
-        let scroll_y = text_lines.saturating_sub(inner_height);
-        let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
+        let max_scroll = text_lines.saturating_sub(inner_height);
+        let effective_scroll = preview_scroll.min(max_scroll);
+        let scroll_y = max_scroll.saturating_sub(effective_scroll);
+        let mut title = preview_title(&entry.name, &entry.pane_id, &entry.title);
+        if preview_scroll > 0 {
+            title.push_str(" [SCROLL]");
+        }
         let preview = Paragraph::new(preview_text)
             .block(
                 Block::default()
@@ -278,6 +288,9 @@ const HELP_TEXT: &str = "\
 Keybindings (Normal mode):
   j / ↓          Move cursor down in session list
   k / ↑          Move cursor up in session list
+  Ctrl+u         Scroll preview up (half page)
+  Ctrl+d         Scroll preview down (half page)
+  G              Scroll preview to bottom
   Space          Mark for preview multiple tmux panes
   s              Switch to tmux pane
   i              Enter input mode (send keys to the selected session)
@@ -689,6 +702,20 @@ mod tests {
         let spans = footer_spans(InputMode::Normal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("I:Input(marked)"), "Normal mode footer should contain 'I:Input(marked)', got: {text}");
+    }
+
+    #[test]
+    fn test_footer_normal_mode_contains_scroll_keys() {
+        let spans = footer_spans(InputMode::Normal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("C-u/C-d:Scroll"), "Normal mode footer should contain 'C-u/C-d:Scroll', got: {text}");
+    }
+
+    #[test]
+    fn test_footer_normal_mode_contains_g_bottom() {
+        let spans = footer_spans(InputMode::Normal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("G:Bottom"), "Normal mode footer should contain 'G:Bottom', got: {text}");
     }
 
     #[test]

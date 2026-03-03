@@ -16,9 +16,25 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tmux_claude_state::monitor::MonitorState;
 
+use std::process::{Command, Stdio};
+
 use crate::event_handler::{self, Action};
 use crate::state::{AppState, PreviewEntry};
 use crate::ui;
+
+/// Capture a tmux pane with scrollback history (ANSI escapes preserved).
+fn capture_pane_with_scrollback(pane_id: &str, scrollback_lines: u16) -> String {
+    let start_line = format!("-{scrollback_lines}");
+    let output = Command::new("tmux")
+        .args(["capture-pane", "-p", "-e", "-S", &start_line, "-t", pane_id])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output();
+    match output {
+        Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
+        Err(_) => String::new(),
+    }
+}
 
 /// Run the TUI application.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -85,7 +101,12 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
         if marked.is_empty() {
             // No marked sessions: show the selected session
             if let Some(session) = app_state.selected_session() {
-                let content = tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id);
+                let content = if app_state.preview_scroll > 0 {
+                    let scrollback_lines = app_state.preview_height.saturating_mul(3);
+                    capture_pane_with_scrollback(&session.pane_id, scrollback_lines)
+                } else {
+                    tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id)
+                };
                 app_state.preview_contents = vec![PreviewEntry {
                     name: session.project_name.clone(),
                     pane_id: session.pane_id.clone(),
@@ -96,7 +117,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 app_state.preview_contents.clear();
             }
         } else {
-            // Show all marked sessions
+            // Show all marked sessions (no scrollback in multi-preview)
             let entries: Vec<PreviewEntry> = marked
                 .iter()
                 .map(|s| {
@@ -113,7 +134,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
         }
 
         // Draw TUI
-        terminal.draw(|f| {
+        let frame = terminal.draw(|f| {
             ui::draw(
                 f,
                 &app_state.sessions,
@@ -122,8 +143,12 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 app_state.input_mode,
                 &app_state.input_buffer,
                 app_state.show_help,
+                app_state.preview_scroll,
             );
         })?;
+
+        // Update preview_height from terminal size (total height minus footer and borders)
+        app_state.preview_height = frame.area.height.saturating_sub(5);
 
         // Wait for at least one event or timeout for periodic refresh
         if event::poll(Duration::from_millis(50))? {

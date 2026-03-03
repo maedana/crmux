@@ -74,6 +74,10 @@ pub struct AppState {
     pub input_buffer: String,
     /// Whether the help popup is currently shown.
     pub show_help: bool,
+    /// Preview scroll offset (0=bottom, positive=scroll up).
+    pub preview_scroll: u16,
+    /// Preview area height (set during draw loop for scroll amount calculation).
+    pub preview_height: u16,
 }
 
 impl AppState {
@@ -86,6 +90,8 @@ impl AppState {
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
             show_help: false,
+            preview_scroll: 0,
+            preview_height: 0,
         }
     }
 
@@ -165,6 +171,7 @@ impl AppState {
         if !self.sessions.is_empty() {
             self.selected_index = (self.selected_index + 1) % self.sessions.len();
         }
+        self.preview_scroll = 0;
     }
 
     /// Move selection up.
@@ -176,6 +183,22 @@ impl AppState {
                 self.selected_index -= 1;
             }
         }
+        self.preview_scroll = 0;
+    }
+
+    /// Scroll the preview up by `amount`, clamped to `max_scroll`.
+    pub fn scroll_preview_up(&mut self, amount: u16, max_scroll: u16) {
+        self.preview_scroll = self.preview_scroll.saturating_add(amount).min(max_scroll);
+    }
+
+    /// Scroll the preview down by `amount`, clamped to 0.
+    pub const fn scroll_preview_down(&mut self, amount: u16) {
+        self.preview_scroll = self.preview_scroll.saturating_sub(amount);
+    }
+
+    /// Reset preview scroll to bottom (0).
+    pub const fn reset_preview_scroll(&mut self) {
+        self.preview_scroll = 0;
     }
 
     /// Get the currently selected session, if any.
@@ -653,6 +676,93 @@ mod tests {
     fn test_selected_session_mut_empty() {
         let mut app = AppState::new(None);
         assert!(app.selected_session_mut().is_none());
+    }
+
+    // --- Preview scroll tests ---
+
+    #[test]
+    fn test_initial_preview_scroll_is_zero() {
+        let app = AppState::new(None);
+        assert_eq!(app.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_initial_preview_height_is_zero() {
+        let app = AppState::new(None);
+        assert_eq!(app.preview_height, 0);
+    }
+
+    #[test]
+    fn test_scroll_preview_up() {
+        let mut app = AppState::new(None);
+        app.scroll_preview_up(10, 90);
+        assert_eq!(app.preview_scroll, 10);
+    }
+
+    #[test]
+    fn test_scroll_preview_up_clamps_to_max() {
+        let mut app = AppState::new(None);
+        app.scroll_preview_up(100, 90);
+        assert_eq!(app.preview_scroll, 90);
+    }
+
+    #[test]
+    fn test_scroll_preview_up_saturating() {
+        let mut app = AppState::new(None);
+        app.preview_scroll = 80;
+        app.scroll_preview_up(20, 90);
+        assert_eq!(app.preview_scroll, 90);
+    }
+
+    #[test]
+    fn test_scroll_preview_down() {
+        let mut app = AppState::new(None);
+        app.preview_scroll = 20;
+        app.scroll_preview_down(10);
+        assert_eq!(app.preview_scroll, 10);
+    }
+
+    #[test]
+    fn test_scroll_preview_down_clamps_to_zero() {
+        let mut app = AppState::new(None);
+        app.preview_scroll = 5;
+        app.scroll_preview_down(10);
+        assert_eq!(app.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_reset_preview_scroll() {
+        let mut app = AppState::new(None);
+        app.preview_scroll = 42;
+        app.reset_preview_scroll();
+        assert_eq!(app.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_select_next_resets_scroll() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.preview_scroll = 20;
+        app.select_next();
+        assert_eq!(app.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_select_prev_resets_scroll() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.selected_index = 1;
+        app.preview_scroll = 15;
+        app.select_prev();
+        assert_eq!(app.preview_scroll, 0);
     }
 
     #[test]
