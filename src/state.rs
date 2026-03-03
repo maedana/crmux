@@ -78,6 +78,8 @@ pub struct AppState {
     pub preview_scroll: u16,
     /// Preview area height (set during draw loop for scroll amount calculation).
     pub preview_height: u16,
+    /// Whether `g` has been pressed once, waiting for the second `g` (vim `gg`).
+    pub pending_g: bool,
 }
 
 impl AppState {
@@ -92,6 +94,7 @@ impl AppState {
             show_help: false,
             preview_scroll: 0,
             preview_height: 0,
+            pending_g: false,
         }
     }
 
@@ -690,6 +693,12 @@ mod tests {
     fn test_initial_preview_height_is_zero() {
         let app = AppState::new(None);
         assert_eq!(app.preview_height, 0);
+    }
+
+    #[test]
+    fn test_initial_pending_g_is_false() {
+        let app = AppState::new(None);
+        assert!(!app.pending_g);
     }
 
     #[test]

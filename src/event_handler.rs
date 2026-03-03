@@ -39,6 +39,19 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
 }
 
 fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
+    // Handle pending 'g' for gg (scroll to top)
+    if state.pending_g {
+        state.pending_g = false;
+        return match code {
+            KeyCode::Char('g') => {
+                let max = state.preview_height.saturating_mul(3);
+                state.preview_scroll = max;
+                Action::Continue
+            }
+            _ => handle_normal_mode(code, modifiers, state),
+        };
+    }
+
     // Handle Ctrl+ combinations first
     if modifiers.contains(KeyModifiers::CONTROL) {
         return match code {
@@ -99,6 +112,10 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
         }
         KeyCode::Char('G') => {
             state.reset_preview_scroll();
+            Action::Continue
+        }
+        KeyCode::Char('g') => {
+            state.pending_g = true;
             Action::Continue
         }
         KeyCode::Char('?') => {
@@ -735,6 +752,41 @@ mod tests {
         state.preview_scroll = 5;
         handle_key_event(&make_ctrl_key_event(KeyCode::Char('d')), &mut state);
         assert_eq!(state.preview_scroll, 0); // 5 - 15 = clamped to 0
+    }
+
+    // --- gg (scroll to top) tests ---
+
+    #[test]
+    fn test_g_sets_pending_g() {
+        let mut state = make_state_with_session();
+        let action = handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(state.pending_g);
+    }
+
+    #[test]
+    fn test_gg_scrolls_to_top() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        // First g
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        // Second g → scroll to top
+        let action = handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 90); // preview_height * 3
+        assert!(!state.pending_g);
+    }
+
+    #[test]
+    fn test_g_then_other_key_cancels_pending() {
+        let mut state = make_state_with_session();
+        // First g
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        assert!(state.pending_g);
+        // Different key → cancel pending_g and handle normally
+        let action = handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert!(!state.pending_g);
     }
 
     // --- Paste event tests ---

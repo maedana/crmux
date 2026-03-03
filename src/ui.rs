@@ -156,7 +156,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled("crmux", Style::default().fg(Color::White))];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title ?:Help q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -296,6 +296,7 @@ Keybindings (Normal mode):
   k / ↑          Move cursor up in session list
   Ctrl+u         Scroll preview up (half page)
   Ctrl+d         Scroll preview down (half page)
+  gg             Scroll preview to top
   G              Scroll preview to bottom
   Space          Mark for preview multiple tmux panes
   s              Switch to tmux pane
