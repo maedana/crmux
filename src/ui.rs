@@ -268,10 +268,19 @@ fn draw_preview_panes(
             .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
         let text_lines = preview_text.lines.len() as u16;
         let inner_height = chunks[i].height.saturating_sub(2);
-        let scroll_y = text_lines.saturating_sub(inner_height);
         let is_focused = selected_pane_id == Some(entry.pane_id.as_str());
+        let (scroll_y, show_scroll_indicator) = if is_focused {
+            let max_scroll = text_lines.saturating_sub(inner_height);
+            let effective_scroll = preview_scroll.min(max_scroll);
+            (max_scroll.saturating_sub(effective_scroll), preview_scroll > 0)
+        } else {
+            (text_lines.saturating_sub(inner_height), false)
+        };
         let title_prefix = if is_focused { SELECTED_ICON } else { "" };
-        let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
+        let mut title = preview_title(&entry.name, &entry.pane_id, &entry.title);
+        if show_scroll_indicator {
+            title.push_str(" [SCROLL]");
+        }
         let preview = Paragraph::new(preview_text)
             .block(
                 Block::default()

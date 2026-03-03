@@ -117,11 +117,18 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 app_state.preview_contents.clear();
             }
         } else {
-            // Show all marked sessions (no scrollback in multi-preview)
+            // Show all marked sessions (scrollback only for focused pane)
+            let selected_pane = app_state.selected_pane_id().map(String::from);
             let entries: Vec<PreviewEntry> = marked
                 .iter()
                 .map(|s| {
-                    let content = tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id);
+                    let is_focused = selected_pane.as_deref() == Some(s.pane_id.as_str());
+                    let content = if is_focused && app_state.preview_scroll > 0 {
+                        let scrollback_lines = app_state.preview_height.saturating_mul(3);
+                        capture_pane_with_scrollback(&s.pane_id, scrollback_lines)
+                    } else {
+                        tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id)
+                    };
                     PreviewEntry {
                         name: s.project_name.clone(),
                         pane_id: s.pane_id.clone(),
