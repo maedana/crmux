@@ -451,14 +451,9 @@ fn draw_sessions_list(
         } else if let Some(display) = session.display_title() {
             let max_width = layout[idx].width.saturating_sub(4) as usize; // borders + mark
             let truncated = truncate_title(display, max_width);
-            let color = if session.title.is_some() {
-                TITLE_COLOR
-            } else {
-                Color::DarkGray
-            };
             Line::from(vec![
                 mark_span,
-                Span::styled(truncated, Style::default().fg(color)),
+                Span::styled(truncated, Style::default().fg(TITLE_COLOR)),
             ])
         } else {
             Line::from(vec![
