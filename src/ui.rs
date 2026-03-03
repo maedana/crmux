@@ -405,12 +405,19 @@ fn draw_sessions_list(
 
         let title_prefix = if is_selected { SELECTED_ICON } else { "" };
 
-        let project_title = Line::from(vec![
+        let mut title_spans = vec![
             Span::styled(
                 format!("{title_prefix}{}", &session.project_name),
                 Style::default().fg(text_color).add_modifier(Modifier::BOLD),
             ),
-        ]);
+        ];
+        if let Some(ref branch) = session.git_branch {
+            title_spans.push(Span::styled(
+                format!(" ({branch})"),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        let project_title = Line::from(title_spans);
 
         let mark_span = Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
 

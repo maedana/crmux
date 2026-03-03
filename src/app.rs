@@ -92,11 +92,20 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     rpc_server: Option<&crate::rpc::RpcServer>,
 ) -> io::Result<()> {
     let mut app_state = AppState::new(Some(own_pid));
+    let mut last_branch_refresh = std::time::Instant::now()
+        .checked_sub(Duration::from_secs(10))
+        .unwrap_or_else(std::time::Instant::now);
 
     loop {
         // Sync with monitor state
         if let Ok(monitor) = monitor_state.lock() {
             app_state.sync_with_monitor(&monitor);
+        }
+
+        // Refresh git branches periodically (every 5 seconds)
+        if last_branch_refresh.elapsed() >= Duration::from_secs(5) {
+            app_state.refresh_git_branches();
+            last_branch_refresh = std::time::Instant::now();
         }
 
         // Process RPC messages

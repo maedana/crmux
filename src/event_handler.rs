@@ -311,6 +311,8 @@ mod tests {
             title: None,
             session_id: None,
             model: None,
+            cwd: "/home/user/test-project".to_string(),
+            git_branch: None,
         });
         state
     }
@@ -622,6 +624,8 @@ mod tests {
             title: None,
             session_id: None,
             model: None,
+            cwd: "/home/user/project-a".to_string(),
+            git_branch: None,
         });
         state.sessions.push(ManagedSession {
             pid: 200,
@@ -633,6 +637,8 @@ mod tests {
             title: None,
             session_id: None,
             model: None,
+            cwd: "/home/user/project-b".to_string(),
+            git_branch: None,
         });
         state.sessions.push(ManagedSession {
             pid: 300,
@@ -644,6 +650,8 @@ mod tests {
             title: None,
             session_id: None,
             model: None,
+            cwd: "/home/user/project-c".to_string(),
+            git_branch: None,
         });
         state
     }

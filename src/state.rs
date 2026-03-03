@@ -1,6 +1,27 @@
+use std::process::{Command, Stdio};
 use std::time::Instant;
 use tmux_claude_state::claude_state::ClaudeState;
 use tmux_claude_state::monitor::{ClaudeSession, MonitorState};
+
+/// Run `git -C <cwd> branch --show-current` and return the branch name.
+fn resolve_git_branch(cwd: &str) -> Option<String> {
+    let output = Command::new("git")
+        .args(["-C", cwd, "branch", "--show-current"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if output.status.success() {
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if branch.is_empty() {
+            None
+        } else {
+            Some(branch)
+        }
+    } else {
+        None
+    }
+}
 
 /// A Claude Code session managed by crmux, tracked by PID.
 #[derive(Debug, Clone)]
@@ -23,6 +44,10 @@ pub struct ManagedSession {
     pub session_id: Option<String>,
     /// Model name (from `SessionStart` hook).
     pub model: Option<String>,
+    /// Current working directory.
+    pub cwd: String,
+    /// Current git branch name (if in a git repo).
+    pub git_branch: Option<String>,
 }
 
 /// Diff result from syncing with `MonitorState`.
@@ -84,6 +109,8 @@ pub struct AppState {
     pub preview_height: u16,
     /// Whether `g` has been pressed once, waiting for the second `g` (vim `gg`).
     pub pending_g: bool,
+    /// RPC messages that arrived before the matching session was discovered.
+    pub pending_rpc: Vec<crate::rpc::RpcMessage>,
 }
 
 impl AppState {
@@ -99,6 +126,7 @@ impl AppState {
             preview_scroll: 0,
             preview_height: 0,
             pending_g: false,
+            pending_rpc: Vec::new(),
         }
     }
 
@@ -150,6 +178,8 @@ impl AppState {
                     title: None,
                     session_id: None,
                     model: None,
+                    cwd: session.pane.cwd.clone(),
+                    git_branch: None,
                 });
             }
         }
@@ -166,6 +196,22 @@ impl AppState {
         // Fix selected_index if out of bounds
         if !self.sessions.is_empty() && self.selected_index >= self.sessions.len() {
             self.selected_index = self.sessions.len() - 1;
+        }
+
+        // Apply buffered RPC messages to newly added sessions
+        if !self.pending_rpc.is_empty() && !added.is_empty() {
+            self.pending_rpc.retain(|msg| {
+                let Some(pane_id) = msg.params.get("pane_id") else {
+                    return false;
+                };
+                if let Some(session) = self.sessions.iter_mut().find(|s| s.pane_id == *pane_id) {
+                    session.session_id = msg.params.get("session_id").cloned();
+                    session.model = msg.params.get("model").cloned();
+                    false // applied — remove from buffer
+                } else {
+                    true // keep in buffer
+                }
+            });
         }
 
         SyncDiff {
@@ -246,7 +292,15 @@ impl AppState {
             .collect()
     }
 
+    /// Refresh git branch names for all sessions by running `git branch --show-current`.
+    pub fn refresh_git_branches(&mut self) {
+        for session in &mut self.sessions {
+            session.git_branch = resolve_git_branch(&session.cwd);
+        }
+    }
+
     /// Handle an incoming RPC message, updating session metadata.
+    /// If the target session is not yet known, the message is buffered in `pending_rpc`.
     pub fn handle_rpc_message(&mut self, msg: &crate::rpc::RpcMessage) {
         if msg.method == "session_start" {
             let Some(pane_id) = msg.params.get("pane_id") else {
@@ -255,6 +309,12 @@ impl AppState {
             if let Some(session) = self.sessions.iter_mut().find(|s| s.pane_id == *pane_id) {
                 session.session_id = msg.params.get("session_id").cloned();
                 session.model = msg.params.get("model").cloned();
+            } else {
+                // Session not yet discovered — buffer for later
+                const MAX_PENDING: usize = 20;
+                if self.pending_rpc.len() < MAX_PENDING {
+                    self.pending_rpc.push(msg.clone());
+                }
             }
         }
     }
@@ -869,6 +929,8 @@ mod tests {
 
         // Should not crash, and existing session should be unchanged
         assert_eq!(app.sessions[0].session_id, None);
+        // Unknown pane should be buffered for later
+        assert_eq!(app.pending_rpc.len(), 1);
     }
 
     #[test]
@@ -945,5 +1007,155 @@ mod tests {
 
         assert_eq!(app.sessions[0].session_id, Some("sess-abc".to_string()));
         assert_eq!(app.sessions[0].model, Some("opus".to_string()));
+    }
+
+    // --- cwd and git_branch ---
+
+    #[test]
+    fn test_new_session_has_cwd() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].cwd, "/home/user/project-a");
+    }
+
+    #[test]
+    fn test_new_session_has_no_git_branch() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].git_branch, None);
+    }
+
+    #[test]
+    fn test_git_branch_preserved_on_sync() {
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+        app.sessions[0].git_branch = Some("feature-branch".to_string());
+
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor2);
+
+        assert_eq!(app.sessions[0].git_branch, Some("feature-branch".to_string()));
+    }
+
+    #[test]
+    fn test_refresh_git_branches_sets_branch_for_valid_repo() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        // Use this repo's own cwd for a known git repo
+        app.sessions[0].cwd = env!("CARGO_MANIFEST_DIR").to_string();
+        app.refresh_git_branches();
+        assert!(app.sessions[0].git_branch.is_some());
+    }
+
+    #[test]
+    fn test_refresh_git_branches_none_for_non_repo() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "tmp", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].cwd = "/tmp".to_string();
+        app.refresh_git_branches();
+        assert_eq!(app.sessions[0].git_branch, None);
+    }
+
+    // --- Pending RPC buffer ---
+
+    #[test]
+    fn test_rpc_before_session_is_buffered() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+
+        // RPC arrives before any session exists
+        let mut params = HashMap::new();
+        params.insert("pane_id".to_string(), "%1".to_string());
+        params.insert("session_id".to_string(), "sess-early".to_string());
+        params.insert("model".to_string(), "opus".to_string());
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params,
+        });
+
+        // Should be buffered in pending_rpc
+        assert_eq!(app.pending_rpc.len(), 1);
+        assert_eq!(app.pending_rpc[0].params["pane_id"], "%1");
+    }
+
+    #[test]
+    fn test_pending_rpc_applied_after_sync() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+
+        // RPC arrives before session
+        let mut params = HashMap::new();
+        params.insert("pane_id".to_string(), "%1".to_string());
+        params.insert("session_id".to_string(), "sess-early".to_string());
+        params.insert("model".to_string(), "opus".to_string());
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params,
+        });
+
+        // Now session appears via monitor
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Pending RPC should have been applied and removed
+        assert!(app.pending_rpc.is_empty());
+        assert_eq!(app.sessions[0].session_id, Some("sess-early".to_string()));
+        assert_eq!(app.sessions[0].model, Some("opus".to_string()));
+    }
+
+    #[test]
+    fn test_pending_rpc_unmatched_retained() {
+        use crate::rpc::RpcMessage;
+        use std::collections::HashMap;
+
+        let mut app = AppState::new(None);
+
+        // Two RPCs for different panes
+        for (pane, sid) in [("%1", "sess-1"), ("%2", "sess-2")] {
+            let mut params = HashMap::new();
+            params.insert("pane_id".to_string(), pane.to_string());
+            params.insert("session_id".to_string(), sid.to_string());
+            app.handle_rpc_message(&RpcMessage {
+                method: "session_start".to_string(),
+                params,
+            });
+        }
+        assert_eq!(app.pending_rpc.len(), 2);
+
+        // Only %1 session appears
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // %1 applied and removed, %2 still pending
+        assert_eq!(app.pending_rpc.len(), 1);
+        assert_eq!(app.pending_rpc[0].params["pane_id"], "%2");
+        assert_eq!(app.sessions[0].session_id, Some("sess-1".to_string()));
     }
 }
