@@ -53,9 +53,31 @@ crmux
 
 Keybindings are shown in the app footer. Run `crmux -h` or press `?` in the app to see all available keybindings.
 
+## Claude Code Hook Setup (Optional)
+
+By configuring a Claude Code hook, crmux can display additional session metadata such as the model name. Add the following to `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "crmux notify session-start"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
 ## Roadmap
 
-- Display git branch and worktree info per session
+- Display worktree info per session
 - Auto-set session title based on the most recent plan mode content
 - More layout options for multi-preview (currently horizontal equal split only)
 - Session status summary in footer (e.g. Running 3 / Idle 2 / Approval 1)

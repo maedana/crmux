@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- Git branch display next to project name in sidebar (auto-refreshed every 5 seconds)
+- RPC support for receiving session metadata (model, session_id) from Claude Code hooks
+- Preview scroll with `Ctrl+u`/`Ctrl+d`, `gg` to jump to top, `G` to jump to bottom
+
 ## 0.3.2
 
 ### Added
