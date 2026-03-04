@@ -5,6 +5,7 @@
 ### Added
 - Grid layout for multi-mark preview: automatically arranges panes side-by-side on wide terminals (cols = width / 80), falling back to vertical stack on narrow screens
 - Preview wrap toggle (`w` key): wrap long lines that extend beyond the preview pane width
+- Esc Esc cancel forwarding: Input/Broadcastモードから`Esc`でNormalモードに戻った直後に再度`Esc`を押すと、Esc Escをtmuxペインに転送してClaude Codeのキャンセル操作を実行
 
 ## 0.5.0
 
