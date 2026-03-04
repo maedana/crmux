@@ -13,6 +13,43 @@ use crate::state::{InputMode, ManagedSession, PreviewEntry};
 const STALE_MIN_SECS: u64 = 5;
 const STALE_MAX_SECS: u64 = 15;
 
+/// Minimum width (in columns) for a single preview pane.
+pub const MIN_PANE_WIDTH: u16 = 80;
+
+/// Compute grid dimensions (cols, rows) for `n` panes in the given width.
+///
+/// `cols = available_width / min_col_width` (at least 1),
+/// `rows = ceil(n / cols)`.
+pub fn compute_grid(n: usize, available_width: u16, min_col_width: u16) -> (usize, usize) {
+    if n == 0 {
+        return (1, 0);
+    }
+    let cols = (available_width / min_col_width).max(1) as usize;
+    let cols = cols.min(n); // don't allocate more columns than panes
+    let rows = n.div_ceil(cols);
+    (cols, rows)
+}
+
+/// Return the number of items in each row of the grid.
+///
+/// All rows have `cols` items except the last, which gets the remainder.
+fn grid_row_items(n: usize, cols: usize) -> Vec<usize> {
+    if cols == 0 || n == 0 {
+        return vec![];
+    }
+    let rows = n.div_ceil(cols);
+    (0..rows)
+        .map(|r| {
+            if r < rows - 1 {
+                cols
+            } else {
+                let rem = n % cols;
+                if rem == 0 { cols } else { rem }
+            }
+        })
+        .collect()
+}
+
 const SELECTED_ICON: &str = "> ";
 const TITLE_COLOR: Color = Color::Rgb(180, 180, 180);
 
@@ -259,46 +296,66 @@ fn draw_preview_panes(
         return;
     }
 
-    // Multiple previews: split vertically
-    #[allow(clippy::cast_possible_truncation)]
-    let count = preview_contents.len() as u32;
-    let constraints: Vec<Constraint> = preview_contents
-        .iter()
-        .map(|_| Constraint::Ratio(1, count))
-        .collect();
+    // Multiple previews: grid layout
+    let n = preview_contents.len();
+    let (cols, rows) = compute_grid(n, area.width, MIN_PANE_WIDTH);
+    let row_items = grid_row_items(n, cols);
 
-    let chunks = Layout::default()
+    // Split area into rows
+    #[allow(clippy::cast_possible_truncation)]
+    let row_constraints: Vec<Constraint> = row_items
+        .iter()
+        .map(|_| Constraint::Ratio(1, rows as u32))
+        .collect();
+    let row_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(constraints)
+        .constraints(row_constraints)
         .split(area);
 
-    for (i, entry) in preview_contents.iter().enumerate() {
-        let preview_text = entry
-            .content
-            .as_str()
-            .into_text()
-            .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
-        let text_lines = preview_text.lines.len() as u16;
-        let inner_height = chunks[i].height.saturating_sub(2);
-        let is_focused = selected_pane_id == Some(entry.pane_id.as_str());
-        let scroll_y = if is_focused {
-            let max_scroll = text_lines.saturating_sub(inner_height);
-            let effective_scroll = preview_scroll.min(max_scroll);
-            max_scroll.saturating_sub(effective_scroll)
-        } else {
-            text_lines.saturating_sub(inner_height)
-        };
-        let title_prefix = if is_focused { SELECTED_ICON } else { "" };
-        let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
-        let preview = Paragraph::new(preview_text)
-            .block(
-                Block::default()
-                    .title(format!("{title_prefix}{title}"))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
-            .scroll((scroll_y, 0));
-        f.render_widget(preview, chunks[i]);
+    let mut idx = 0;
+    for (row_idx, &items_in_row) in row_items.iter().enumerate() {
+        // Split each row into columns
+        #[allow(clippy::cast_possible_truncation)]
+        let col_constraints: Vec<Constraint> = (0..items_in_row)
+            .map(|_| Constraint::Ratio(1, items_in_row as u32))
+            .collect();
+        let col_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints(col_constraints)
+            .split(row_chunks[row_idx]);
+
+        for col_idx in 0..items_in_row {
+            let entry = &preview_contents[idx];
+            let cell_area = col_chunks[col_idx];
+            let preview_text = entry
+                .content
+                .as_str()
+                .into_text()
+                .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
+            #[allow(clippy::cast_possible_truncation)]
+            let text_lines = preview_text.lines.len() as u16;
+            let inner_height = cell_area.height.saturating_sub(2);
+            let is_focused = selected_pane_id == Some(entry.pane_id.as_str());
+            let scroll_y = if is_focused {
+                let max_scroll = text_lines.saturating_sub(inner_height);
+                let effective_scroll = preview_scroll.min(max_scroll);
+                max_scroll.saturating_sub(effective_scroll)
+            } else {
+                text_lines.saturating_sub(inner_height)
+            };
+            let title_prefix = if is_focused { SELECTED_ICON } else { "" };
+            let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
+            let preview = Paragraph::new(preview_text)
+                .block(
+                    Block::default()
+                        .title(format!("{title_prefix}{title}"))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::Gray)),
+                )
+                .scroll((scroll_y, 0));
+            f.render_widget(preview, cell_area);
+            idx += 1;
+        }
     }
 }
 
@@ -765,6 +822,87 @@ mod tests {
         let spans = footer_spans(InputMode::Normal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("G:Bottom"), "Normal mode footer should contain 'G:Bottom', got: {text}");
+    }
+
+    // --- compute_grid tests ---
+
+    #[test]
+    fn test_compute_grid_single_pane() {
+        // 1ペインは常に (1, 1)
+        assert_eq!(compute_grid(1, 200, MIN_PANE_WIDTH), (1, 1));
+    }
+
+    #[test]
+    fn test_compute_grid_horizontal_fit() {
+        // 幅160で2ペイン → 横並び (2cols, 1row)
+        assert_eq!(compute_grid(2, 160, MIN_PANE_WIDTH), (2, 1));
+    }
+
+    #[test]
+    fn test_compute_grid_grid_layout() {
+        // 幅160で4ペイン → 2x2グリッド
+        assert_eq!(compute_grid(4, 160, MIN_PANE_WIDTH), (2, 2));
+    }
+
+    #[test]
+    fn test_compute_grid_wide_screen() {
+        // 幅320で4ペイン → 全て横並び (4cols, 1row)
+        assert_eq!(compute_grid(4, 320, MIN_PANE_WIDTH), (4, 1));
+    }
+
+    #[test]
+    fn test_compute_grid_narrow_screen() {
+        // 幅79で3ペイン → 全て縦積み (1col, 3rows)
+        assert_eq!(compute_grid(3, 79, MIN_PANE_WIDTH), (1, 3));
+    }
+
+    #[test]
+    fn test_compute_grid_boundary_exact() {
+        // 幅80で1ペイン → (1, 1)
+        assert_eq!(compute_grid(1, 80, MIN_PANE_WIDTH), (1, 1));
+    }
+
+    #[test]
+    fn test_compute_grid_boundary_two_panes() {
+        // 幅160でちょうど2列
+        assert_eq!(compute_grid(3, 160, MIN_PANE_WIDTH), (2, 2));
+    }
+
+    #[test]
+    fn test_compute_grid_zero_panes() {
+        assert_eq!(compute_grid(0, 200, MIN_PANE_WIDTH), (1, 0));
+    }
+
+    // --- grid_row_items tests ---
+
+    #[test]
+    fn test_grid_row_items_even_split() {
+        // 4ペイン2列 → [2, 2]
+        assert_eq!(grid_row_items(4, 2), vec![2, 2]);
+    }
+
+    #[test]
+    fn test_grid_row_items_remainder() {
+        // 3ペイン2列 → [2, 1]
+        assert_eq!(grid_row_items(3, 2), vec![2, 1]);
+    }
+
+    #[test]
+    fn test_grid_row_items_single_column() {
+        // 3ペイン1列 → [1, 1, 1]
+        assert_eq!(grid_row_items(3, 1), vec![1, 1, 1]);
+    }
+
+    #[test]
+    fn test_grid_row_items_all_in_one_row() {
+        // 3ペイン3列 → [3]
+        assert_eq!(grid_row_items(3, 3), vec![3]);
+    }
+
+    #[test]
+    fn test_grid_row_items_5_panes_3_cols() {
+        // 5ペイン3列 → [3, 2]
+        assert_eq!(grid_row_items(5, 3), vec![3, 2]);
     }
 
     #[test]

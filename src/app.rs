@@ -181,7 +181,17 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
         })?;
 
         // Update preview_height from terminal size (total height minus footer and borders)
-        app_state.preview_height = frame.area.height.saturating_sub(5);
+        // When grid layout is active, divide by number of rows so scroll amounts
+        // match per-pane height.
+        let total_preview_height = frame.area.height.saturating_sub(5);
+        let preview_count = app_state.preview_contents.len();
+        if preview_count > 1 {
+            let available_width = frame.area.width.saturating_sub(30); // sidebar 30 cols
+            let (_cols, rows) = ui::compute_grid(preview_count, available_width, ui::MIN_PANE_WIDTH);
+            app_state.preview_height = total_preview_height / rows.max(1) as u16;
+        } else {
+            app_state.preview_height = total_preview_height;
+        }
 
         // Wait for at least one event or timeout for periodic refresh
         if event::poll(Duration::from_millis(50))? {
