@@ -410,7 +410,7 @@ impl AppState {
                 let state_name = match s.state {
                     ClaudeState::Idle => "Idle",
                     ClaudeState::Working => "Working",
-                    ClaudeState::WaitingForApproval => "Waiting",
+                    ClaudeState::WaitingForApproval => "WaitingForApproval",
                 };
                 serde_json::json!({
                     "pane_id": s.pane_id,
@@ -1537,6 +1537,19 @@ mod tests {
         // elapsed_secs should be a non-negative number
         assert!(s["elapsed_secs"].as_u64().is_some());
         assert_eq!(result["visible"], false);
+    }
+
+    #[test]
+    fn test_serialize_sessions_waiting_for_approval_state() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::WaitingForApproval),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let result = app.serialize_sessions();
+        let sessions = result["sessions"].as_array().unwrap();
+        assert_eq!(sessions[0]["state"], "WaitingForApproval");
     }
 
     #[test]
