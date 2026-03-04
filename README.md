@@ -77,7 +77,24 @@ Add the following to `~/.claude/settings.json`:
 }
 ```
 
-To also display model display name (e.g. "Opus") and context window usage percentage, configure a `statusLine` command that pipes the status JSON to crmux. Create `~/.local/bin/ccstatus`:
+To also display model display name (e.g. "Opus") and context window usage percentage, configure a `statusLine` command. The simplest setup uses `crmux notify status-update` directly:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "crmux notify status-update",
+    "padding": 0
+  }
+}
+```
+
+> **Note:** The `statusLine` command's stdout is used as Claude Code's own status line display. Since `crmux notify` produces no output, Claude Code's status line will be blank with this setup. If you want both crmux sidebar info **and** Claude Code's status line, use a wrapper script instead.
+
+<details>
+<summary>Wrapper script example (ccstatus)</summary>
+
+Create `~/.local/bin/ccstatus`:
 
 ```bash
 #!/bin/bash
@@ -99,8 +116,6 @@ else
 fi
 ```
 
-Then add to `~/.claude/settings.json`:
-
 ```json
 {
   "statusLine": {
@@ -110,6 +125,8 @@ Then add to `~/.claude/settings.json`:
   }
 }
 ```
+
+</details>
 
 ## Roadmap
 
