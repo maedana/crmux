@@ -114,6 +114,7 @@ pub fn draw(
     input_mode: InputMode,
     input_buffer: &str,
     show_help: bool,
+    help_scroll: u16,
     preview_scroll: u16,
 ) {
     let size = f.area();
@@ -147,7 +148,7 @@ pub fn draw(
 
     // Help popup overlay
     if show_help {
-        draw_help_popup(f, size);
+        draw_help_popup(f, size, help_scroll);
     }
 }
 
@@ -184,6 +185,14 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 Style::default().add_modifier(Modifier::BOLD),
             ));
             spans.push(Span::raw(" | Keys sent to marked panes. Esc:Back"));
+        }
+        InputMode::Scroll => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled(
+                "-- SCROLL --",
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+            spans.push(Span::raw(" | j/k:Scroll C-u/C-d:Page gg:Top G:Bottom i:Input I:Broadcast Esc:Back"));
         }
     }
     spans
@@ -293,7 +302,7 @@ fn draw_preview_panes(
     }
 }
 
-const HELP_TEXT: &str = "\
+pub const HELP_TEXT: &str = "\
 Keybindings (Normal mode):
   j / ↓          Move cursor down in session list
   k / ↑          Move cursor up in session list
@@ -309,6 +318,17 @@ Keybindings (Normal mode):
   ?              Show this help
   q              Quit crmux
 
+Keybindings (Scroll mode):
+  j / ↓          Scroll preview down (1 line)
+  k / ↑          Scroll preview up (1 line)
+  Ctrl+u         Scroll preview up (half page)
+  Ctrl+d         Scroll preview down (half page)
+  gg             Scroll preview to top
+  G              Scroll preview to bottom (exit scroll mode)
+  i              Enter input mode (reset scroll)
+  I              Enter broadcast mode (reset scroll)
+  Esc            Reset scroll and return to normal mode
+
 Keybindings (Input mode):
   Esc            Return to normal mode
   Any other key  Forwarded to the tmux pane via send-keys
@@ -322,9 +342,9 @@ Keybindings (Title mode):
   Backspace      Delete the last character";
 
 /// Draw a centered help popup overlay.
-fn draw_help_popup(f: &mut ratatui::Frame, area: Rect) {
-    let popup_width = area.width.min(60);
-    let popup_height = area.height.min(20);
+fn draw_help_popup(f: &mut ratatui::Frame, area: Rect, help_scroll: u16) {
+    let popup_width = area.width.min(65);
+    let popup_height = area.height.saturating_sub(4).min(40);
     let x = (area.width.saturating_sub(popup_width)) / 2;
     let y = (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(x, y, popup_width, popup_height);
@@ -332,12 +352,13 @@ fn draw_help_popup(f: &mut ratatui::Frame, area: Rect) {
     f.render_widget(Clear, popup_area);
 
     let block = Block::default()
-        .title(" Help (? to close) ")
+        .title(" Help (? to close, j/k to scroll) ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::Cyan));
     let paragraph = Paragraph::new(HELP_TEXT)
         .block(block)
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((help_scroll, 0));
     f.render_widget(paragraph, popup_area);
 }
 
@@ -758,5 +779,28 @@ mod tests {
         } else {
             panic!("Expected Color::Rgb");
         }
+    }
+
+    // --- Scroll mode footer tests ---
+
+    #[test]
+    fn test_footer_scroll_mode_has_scroll_indicator() {
+        let spans = footer_spans(InputMode::Scroll);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("-- SCROLL --"), "Scroll mode footer should contain '-- SCROLL --', got: {text}");
+    }
+
+    #[test]
+    fn test_footer_scroll_mode_starts_with_app_name() {
+        let spans = footer_spans(InputMode::Scroll);
+        assert!(spans[0].content.starts_with("crmux v"));
+    }
+
+    #[test]
+    fn test_footer_scroll_mode_contains_keybindings() {
+        let spans = footer_spans(InputMode::Scroll);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("j/k:Scroll"), "Scroll mode footer should contain 'j/k:Scroll', got: {text}");
+        assert!(text.contains("Esc:Back"), "Scroll mode footer should contain 'Esc:Back', got: {text}");
     }
 }

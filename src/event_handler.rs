@@ -18,19 +18,14 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
     match event {
         Event::Key(key) => {
             if state.show_help {
-                return match key.code {
-                    KeyCode::Char('?') | KeyCode::Esc => {
-                        state.show_help = false;
-                        Action::Continue
-                    }
-                    _ => Action::Continue,
-                };
+                return handle_help_mode(key.code, key.modifiers, state);
             }
             match state.input_mode {
                 InputMode::Normal => handle_normal_mode(key.code, key.modifiers, state),
                 InputMode::Input => handle_input_mode(key.code, key.modifiers, state),
                 InputMode::Title => handle_title_mode(key.code, key.modifiers, state),
                 InputMode::Broadcast => handle_broadcast_mode(key.code, key.modifiers, state),
+                InputMode::Scroll => handle_scroll_mode(key.code, key.modifiers, state),
             }
         }
         Event::Paste(text) => handle_paste_event(text, state),
@@ -46,6 +41,9 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             KeyCode::Char('g') => {
                 let max = state.preview_height.saturating_mul(3);
                 state.preview_scroll = max;
+                if state.preview_scroll > 0 {
+                    state.input_mode = InputMode::Scroll;
+                }
                 Action::Continue
             }
             _ => handle_normal_mode(code, modifiers, state),
@@ -59,6 +57,9 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
                 let half = state.preview_height / 2;
                 let max = state.preview_height.saturating_mul(3);
                 state.scroll_preview_up(half, max);
+                if state.preview_scroll > 0 {
+                    state.input_mode = InputMode::Scroll;
+                }
                 Action::Continue
             }
             KeyCode::Char('d') => {
@@ -145,6 +146,133 @@ fn handle_broadcast_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut App
     Action::Continue
 }
 
+fn help_line_count() -> u16 {
+    crate::ui::HELP_TEXT.lines().count() as u16
+}
+
+fn handle_help_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        return match code {
+            KeyCode::Char('u') => {
+                state.help_scroll = state.help_scroll.saturating_sub(10);
+                Action::Continue
+            }
+            KeyCode::Char('d') => {
+                let max = help_line_count();
+                state.help_scroll = state.help_scroll.saturating_add(10).min(max);
+                Action::Continue
+            }
+            _ => Action::Continue,
+        };
+    }
+    match code {
+        KeyCode::Char('?') | KeyCode::Esc => {
+            state.show_help = false;
+            state.help_scroll = 0;
+            Action::Continue
+        }
+        KeyCode::Char('j') | KeyCode::Down => {
+            let max = help_line_count();
+            state.help_scroll = state.help_scroll.saturating_add(1).min(max);
+            Action::Continue
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            state.help_scroll = state.help_scroll.saturating_sub(1);
+            Action::Continue
+        }
+        KeyCode::Char('g') => {
+            state.help_scroll = 0;
+            Action::Continue
+        }
+        KeyCode::Char('G') => {
+            state.help_scroll = help_line_count();
+            Action::Continue
+        }
+        _ => Action::Continue,
+    }
+}
+
+fn handle_scroll_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
+    // Handle pending 'g' for gg (scroll to top)
+    if state.pending_g {
+        state.pending_g = false;
+        return match code {
+            KeyCode::Char('g') => {
+                let max = state.preview_height.saturating_mul(3);
+                state.preview_scroll = max;
+                Action::Continue
+            }
+            _ => handle_scroll_mode(code, modifiers, state),
+        };
+    }
+
+    // Handle Ctrl+ combinations
+    if modifiers.contains(KeyModifiers::CONTROL) {
+        return match code {
+            KeyCode::Char('u') => {
+                let half = state.preview_height / 2;
+                let max = state.preview_height.saturating_mul(3);
+                state.scroll_preview_up(half, max);
+                Action::Continue
+            }
+            KeyCode::Char('d') => {
+                let half = state.preview_height / 2;
+                state.scroll_preview_down(half);
+                if state.preview_scroll == 0 {
+                    state.input_mode = InputMode::Normal;
+                }
+                Action::Continue
+            }
+            _ => Action::Continue,
+        };
+    }
+
+    match code {
+        KeyCode::Char('j') | KeyCode::Down => {
+            state.scroll_preview_down(1);
+            if state.preview_scroll == 0 {
+                state.input_mode = InputMode::Normal;
+            }
+            Action::Continue
+        }
+        KeyCode::Char('k') | KeyCode::Up => {
+            let max = state.preview_height.saturating_mul(3);
+            state.scroll_preview_up(1, max);
+            Action::Continue
+        }
+        #[allow(clippy::match_same_arms)]
+        KeyCode::Char('G') => {
+            state.reset_preview_scroll();
+            state.input_mode = InputMode::Normal;
+            Action::Continue
+        }
+        KeyCode::Char('g') => {
+            state.pending_g = true;
+            Action::Continue
+        }
+        KeyCode::Esc => {
+            state.reset_preview_scroll();
+            state.input_mode = InputMode::Normal;
+            Action::Continue
+        }
+        KeyCode::Char('i') => {
+            if state.selected_pane_id().is_some() {
+                state.reset_preview_scroll();
+                state.input_mode = InputMode::Input;
+            }
+            Action::Continue
+        }
+        KeyCode::Char('I') => {
+            if !state.marked_pane_ids().is_empty() {
+                state.reset_preview_scroll();
+                state.input_mode = InputMode::Broadcast;
+            }
+            Action::Continue
+        }
+        _ => Action::Continue,
+    }
+}
+
 fn handle_title_mode(code: KeyCode, _modifiers: KeyModifiers, state: &mut AppState) -> Action {
     match code {
         KeyCode::Esc => {
@@ -193,7 +321,7 @@ fn handle_paste_event(text: &str, state: &AppState) -> Action {
             let refs: Vec<&str> = pane_ids.iter().map(|s| s.as_str()).collect();
             send_paste_to_panes(&refs, text);
         }
-        InputMode::Normal | InputMode::Title => {}
+        InputMode::Normal | InputMode::Title | InputMode::Scroll => {}
     }
     Action::Continue
 }
@@ -611,6 +739,78 @@ mod tests {
         assert!(state.show_help);
     }
 
+    #[test]
+    fn test_help_j_scrolls_down() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        assert_eq!(state.help_scroll, 1);
+        assert!(state.show_help);
+    }
+
+    #[test]
+    fn test_help_k_scrolls_up() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        state.help_scroll = 5;
+        handle_key_event(&make_key_event(KeyCode::Char('k')), &mut state);
+        assert_eq!(state.help_scroll, 4);
+    }
+
+    #[test]
+    fn test_help_k_clamps_to_zero() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        state.help_scroll = 0;
+        handle_key_event(&make_key_event(KeyCode::Char('k')), &mut state);
+        assert_eq!(state.help_scroll, 0);
+    }
+
+    #[test]
+    fn test_help_esc_resets_scroll() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        state.help_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert!(!state.show_help);
+        assert_eq!(state.help_scroll, 0);
+    }
+
+    #[test]
+    fn test_help_shift_g_scrolls_to_bottom() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        handle_key_event(&make_key_event(KeyCode::Char('G')), &mut state);
+        assert!(state.help_scroll > 0);
+        assert!(state.show_help);
+    }
+
+    #[test]
+    fn test_help_g_scrolls_to_top() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        state.help_scroll = 20;
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        assert_eq!(state.help_scroll, 0);
+    }
+
+    #[test]
+    fn test_help_ctrl_d_scrolls_down() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('d')), &mut state);
+        assert_eq!(state.help_scroll, 10);
+    }
+
+    #[test]
+    fn test_help_ctrl_u_scrolls_up() {
+        let mut state = AppState::new(None);
+        state.show_help = true;
+        state.help_scroll = 15;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('u')), &mut state);
+        assert_eq!(state.help_scroll, 5);
+    }
+
     // --- Broadcast mode tests ---
 
     fn make_state_with_marked_sessions() -> AppState {
@@ -866,5 +1066,220 @@ mod tests {
         assert_eq!(action, Action::Continue);
         assert_eq!(state.input_mode, InputMode::Broadcast);
         assert!(state.input_buffer.is_empty());
+    }
+
+    #[test]
+    fn test_paste_ignored_in_scroll_mode() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        let action = handle_key_event(&make_paste_event("hello"), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    // --- Scroll mode entry tests ---
+
+    #[test]
+    fn test_ctrl_u_enters_scroll_mode() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('u')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_gg_enters_scroll_mode() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_ctrl_d_does_not_enter_scroll_mode_at_bottom() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.preview_scroll = 0;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('d')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    // --- Scroll mode tests ---
+
+    #[test]
+    fn test_scroll_mode_j_scrolls_down() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        assert_eq!(state.preview_scroll, 9);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_scroll_mode_k_scrolls_up() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        state.preview_height = 30;
+        handle_key_event(&make_key_event(KeyCode::Char('k')), &mut state);
+        assert_eq!(state.preview_scroll, 11);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_scroll_mode_down_arrow_scrolls_down() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 5;
+        handle_key_event(&make_key_event(KeyCode::Down), &mut state);
+        assert_eq!(state.preview_scroll, 4);
+    }
+
+    #[test]
+    fn test_scroll_mode_up_arrow_scrolls_up() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 5;
+        state.preview_height = 30;
+        handle_key_event(&make_key_event(KeyCode::Up), &mut state);
+        assert_eq!(state.preview_scroll, 6);
+    }
+
+    #[test]
+    fn test_scroll_mode_j_to_zero_exits_scroll() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 1;
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_scroll_mode_ctrl_u_scrolls_up() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        state.preview_height = 30;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('u')), &mut state);
+        assert_eq!(state.preview_scroll, 25); // 10 + 15
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_scroll_mode_ctrl_d_scrolls_down() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 20;
+        state.preview_height = 30;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('d')), &mut state);
+        assert_eq!(state.preview_scroll, 5); // 20 - 15
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_scroll_mode_ctrl_d_to_zero_exits_scroll() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 5;
+        state.preview_height = 30;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('d')), &mut state);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_scroll_mode_shift_g_exits_scroll() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 42;
+        handle_key_event(&make_key_event(KeyCode::Char('G')), &mut state);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_scroll_mode_esc_resets_and_exits() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 42;
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_scroll_mode_i_enters_input_mode() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Input);
+        assert_eq!(state.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_scroll_mode_shift_i_enters_broadcast_mode() {
+        let mut state = make_state_with_marked_sessions();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Broadcast);
+        assert_eq!(state.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_scroll_mode_shift_i_does_nothing_without_marks() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+        assert_eq!(state.preview_scroll, 10);
+    }
+
+    #[test]
+    fn test_scroll_mode_gg_scrolls_to_top() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_height = 30;
+        state.preview_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        assert_eq!(state.preview_scroll, 90); // preview_height * 3
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_scroll_mode_q_does_not_quit() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        let action = handle_key_event(&make_key_event(KeyCode::Char('q')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_scroll_mode_g_then_other_key_cancels_pending() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
+        assert!(state.pending_g);
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        assert!(!state.pending_g);
+        assert_eq!(state.preview_scroll, 9);
+    }
+
+    #[test]
+    fn test_scroll_mode_i_does_nothing_without_session() {
+        let mut state = AppState::new(None);
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Scroll);
     }
 }

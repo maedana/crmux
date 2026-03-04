@@ -5,6 +5,7 @@
 ### Added
 - Model display name via statusLine hook (e.g. "Opus" instead of "claude-opus-4-6")
 - Context window usage percentage display in sidebar (e.g. "Opus (45%)")
+- Scroll mode: `Ctrl+U`/`gg` triggers automatic entry, `j`/`k` for line-by-line scrolling, footer shows `-- SCROLL --` indicator
 
 ### Changed
 - RPC params changed from flat `HashMap<String, String>` to `serde_json::Value` to support nested JSON

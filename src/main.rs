@@ -1,4 +1,4 @@
-use clap::Parser;
+use clap::{CommandFactory, FromArgMatches, Parser};
 use std::env;
 
 mod app;
@@ -9,24 +9,7 @@ mod state;
 mod ui;
 
 #[derive(Parser)]
-#[command(version, about, after_help = "\
-Keybindings (Normal mode):
-  j / ↓          Move cursor down in session list
-  k / ↑          Move cursor up in session list
-  Space          Mark for preview multiple tmux panes
-  s              Switch to tmux pane
-  i              Enter input mode (type a prompt to send to the session)
-  e              Enter title mode (set a title for the session)
-  ?              Show help
-  q              Quit crmux
-
-Keybindings (Input mode):
-  Esc            Return to normal mode
-  Any other key  Forwarded to the tmux pane via send-keys
-
-Keybindings (Title mode):
-  Esc            Save and return to normal mode
-  Backspace      Delete the last character")]
+#[command(version, about)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
@@ -42,7 +25,12 @@ enum Commands {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let cli = Cli::from_arg_matches(
+        &Cli::command()
+            .after_help(ui::HELP_TEXT)
+            .get_matches(),
+    )
+    .expect("failed to parse CLI arguments");
 
     match cli.command {
         Some(Commands::Notify { event }) => {

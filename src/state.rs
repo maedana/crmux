@@ -98,6 +98,8 @@ pub enum InputMode {
     Title,
     /// Broadcast mode for sending keys to all marked sessions.
     Broadcast,
+    /// Scroll mode for navigating preview with j/k.
+    Scroll,
 }
 
 /// Application state for the sidebar.
@@ -116,6 +118,8 @@ pub struct AppState {
     pub input_buffer: String,
     /// Whether the help popup is currently shown.
     pub show_help: bool,
+    /// Help popup scroll offset (in lines from the top).
+    pub help_scroll: u16,
     /// Preview scroll offset (0=bottom, positive=scroll up).
     pub preview_scroll: u16,
     /// Preview area height (set during draw loop for scroll amount calculation).
@@ -136,6 +140,7 @@ impl AppState {
             input_mode: InputMode::Normal,
             input_buffer: String::new(),
             show_help: false,
+            help_scroll: 0,
             preview_scroll: 0,
             preview_height: 0,
             pending_g: false,
