@@ -357,6 +357,14 @@ impl AppState {
                     msg.params.get("model").and_then(|v| v.as_str()).map(String::from);
             }
             "status_update" => {
+                // Extract session_id (fills in if not already set via session_start)
+                if session.session_id.is_none() {
+                    session.session_id = msg
+                        .params
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                }
                 // Extract model.display_name from nested JSON
                 if let Some(display_name) = msg
                     .params
@@ -1366,6 +1374,60 @@ mod tests {
         });
 
         assert_eq!(app.sessions[0].context_percent, Some(0));
+    }
+
+    #[test]
+    fn test_status_update_sets_session_id() {
+        use crate::rpc::RpcMessage;
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].session_id, None);
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-from-statusline",
+                "model": { "display_name": "Opus" },
+            }),
+        });
+
+        assert_eq!(app.sessions[0].session_id, Some("sess-from-statusline".to_string()));
+    }
+
+    #[test]
+    fn test_status_update_does_not_overwrite_existing_session_id() {
+        use crate::rpc::RpcMessage;
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // session_start sets session_id first
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-original",
+                "model": "opus",
+            }),
+        });
+        assert_eq!(app.sessions[0].session_id, Some("sess-original".to_string()));
+
+        // status_update should NOT overwrite existing session_id
+        app.handle_rpc_message(&RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-new",
+                "model": { "display_name": "Opus" },
+            }),
+        });
+        assert_eq!(app.sessions[0].session_id, Some("sess-original".to_string()));
     }
 
     #[test]
