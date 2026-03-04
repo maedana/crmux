@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde_json::Value;
 use std::io::{self, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -10,7 +10,7 @@ use std::thread;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RpcMessage {
     pub method: String,
-    pub params: HashMap<String, String>,
+    pub params: Value,
 }
 
 /// Return the socket path: `/tmp/crmux-{uid}.sock`
@@ -20,7 +20,7 @@ pub fn socket_path() -> PathBuf {
 }
 
 /// Encode an RPC notification as msgpack-rpc wire format: `[2, method, params]`
-pub fn encode_notification(method: &str, params: &HashMap<String, String>) -> Vec<u8> {
+pub fn encode_notification(method: &str, params: &Value) -> Vec<u8> {
     let mut buf = Vec::new();
     rmp::encode::write_array_len(&mut buf, 3).expect("encode array len");
     rmp::encode::write_uint(&mut buf, 2).expect("encode type");
@@ -65,7 +65,7 @@ pub fn decode_notification(data: &[u8]) -> io::Result<RpcMessage> {
 
     #[allow(clippy::cast_possible_truncation)]
     let remaining = &data[cursor.position() as usize..];
-    let params: HashMap<String, String> = rmp_serde::from_slice(remaining)
+    let params: Value = rmp_serde::from_slice(remaining)
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
 
     Ok(RpcMessage { method, params })
@@ -145,7 +145,7 @@ impl Drop for RpcServer {
 // --- Client side ---
 
 /// Send an RPC notification to the running crmux instance.
-pub fn send_notification(method: &str, params: &HashMap<String, String>) -> io::Result<()> {
+pub fn send_notification(method: &str, params: &Value) -> io::Result<()> {
     let path = socket_path();
     let mut stream = UnixStream::connect(&path)?;
     let data = encode_notification(method, params);
@@ -162,30 +162,45 @@ mod tests {
 
     #[test]
     fn test_encode_decode_round_trip() {
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%5".to_string());
-        params.insert("session_id".to_string(), "abc-123".to_string());
-        params.insert("cwd".to_string(), "/home/user/project".to_string());
-        params.insert("model".to_string(), "claude-sonnet-4-6".to_string());
+        let params = serde_json::json!({
+            "pane_id": "%5",
+            "session_id": "abc-123",
+            "cwd": "/home/user/project",
+            "model": "claude-sonnet-4-6",
+        });
 
         let encoded = encode_notification("session_start", &params);
         let decoded = decode_notification(&encoded).unwrap();
 
         assert_eq!(decoded.method, "session_start");
-        assert_eq!(decoded.params.get("pane_id").unwrap(), "%5");
-        assert_eq!(decoded.params.get("session_id").unwrap(), "abc-123");
-        assert_eq!(decoded.params.get("cwd").unwrap(), "/home/user/project");
-        assert_eq!(decoded.params.get("model").unwrap(), "claude-sonnet-4-6");
+        assert_eq!(decoded.params["pane_id"], "%5");
+        assert_eq!(decoded.params["session_id"], "abc-123");
+        assert_eq!(decoded.params["cwd"], "/home/user/project");
+        assert_eq!(decoded.params["model"], "claude-sonnet-4-6");
+    }
+
+    #[test]
+    fn test_encode_decode_nested_params() {
+        let params = serde_json::json!({
+            "pane_id": "%1",
+            "model": { "display_name": "Opus" },
+        });
+
+        let encoded = encode_notification("status_update", &params);
+        let decoded = decode_notification(&encoded).unwrap();
+
+        assert_eq!(decoded.method, "status_update");
+        assert_eq!(decoded.params["model"]["display_name"], "Opus");
     }
 
     #[test]
     fn test_encode_decode_empty_params() {
-        let params = HashMap::new();
+        let params = serde_json::json!({});
         let encoded = encode_notification("ping", &params);
         let decoded = decode_notification(&encoded).unwrap();
 
         assert_eq!(decoded.method, "ping");
-        assert!(decoded.params.is_empty());
+        assert_eq!(decoded.params, serde_json::json!({}));
     }
 
     #[test]
@@ -208,7 +223,7 @@ mod tests {
         rmp::encode::write_array_len(&mut buf, 3).unwrap();
         rmp::encode::write_uint(&mut buf, 0).unwrap();
         rmp::encode::write_str(&mut buf, "test").unwrap();
-        let params: HashMap<String, String> = HashMap::new();
+        let params = serde_json::json!({});
         buf.extend_from_slice(&rmp_serde::to_vec(&params).unwrap());
 
         let result = decode_notification(&buf);
@@ -258,9 +273,10 @@ mod tests {
         });
 
         // Send a notification
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%5".to_string());
-        params.insert("session_id".to_string(), "test-session".to_string());
+        let params = serde_json::json!({
+            "pane_id": "%5",
+            "session_id": "test-session",
+        });
 
         let mut stream = UnixStream::connect(&test_path).unwrap();
         let data = encode_notification("session_start", &params);
@@ -271,8 +287,8 @@ mod tests {
         // Wait for message
         let msg = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
         assert_eq!(msg.method, "session_start");
-        assert_eq!(msg.params.get("pane_id").unwrap(), "%5");
-        assert_eq!(msg.params.get("session_id").unwrap(), "test-session");
+        assert_eq!(msg.params["pane_id"], "%5");
+        assert_eq!(msg.params["session_id"], "test-session");
 
         // Cleanup
         let _ = std::fs::remove_file(&test_path);

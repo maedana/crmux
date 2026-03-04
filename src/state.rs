@@ -42,8 +42,10 @@ pub struct ManagedSession {
     pub title: Option<String>,
     /// Claude Code `session_id` (from `SessionStart` hook).
     pub session_id: Option<String>,
-    /// Model name (from `SessionStart` hook).
+    /// Model display name (from `statusLine` hook or `SessionStart` hook).
     pub model: Option<String>,
+    /// Context window usage percentage (0–100).
+    pub context_percent: Option<u8>,
     /// Current working directory.
     pub cwd: String,
     /// Current git branch name (if in a git repo).
@@ -189,6 +191,7 @@ impl AppState {
                     title: None,
                     session_id: None,
                     model: None,
+                    context_percent: None,
                     cwd: session.pane.cwd.clone(),
                     git_branch: None,
                     auto_title: None,
@@ -213,16 +216,13 @@ impl AppState {
         // Apply buffered RPC messages to newly added sessions
         if !self.pending_rpc.is_empty() && !added.is_empty() {
             self.pending_rpc.retain(|msg| {
-                let Some(pane_id) = msg.params.get("pane_id") else {
+                let Some(pane_id) = msg.params.get("pane_id").and_then(|v| v.as_str()) else {
                     return false;
                 };
-                if let Some(session) = self.sessions.iter_mut().find(|s| s.pane_id == *pane_id) {
-                    session.session_id = msg.params.get("session_id").cloned();
-                    session.model = msg.params.get("model").cloned();
+                self.sessions.iter_mut().find(|s| s.pane_id == pane_id).is_none_or(|session| {
+                    Self::apply_rpc_to_session(session, msg);
                     false // applied — remove from buffer
-                } else {
-                    true // keep in buffer
-                }
+                })
             });
         }
 
@@ -327,20 +327,66 @@ impl AppState {
     /// Handle an incoming RPC message, updating session metadata.
     /// If the target session is not yet known, the message is buffered in `pending_rpc`.
     pub fn handle_rpc_message(&mut self, msg: &crate::rpc::RpcMessage) {
-        if msg.method == "session_start" {
-            let Some(pane_id) = msg.params.get("pane_id") else {
-                return;
-            };
-            if let Some(session) = self.sessions.iter_mut().find(|s| s.pane_id == *pane_id) {
-                session.session_id = msg.params.get("session_id").cloned();
-                session.model = msg.params.get("model").cloned();
-            } else {
-                // Session not yet discovered — buffer for later
-                const MAX_PENDING: usize = 20;
-                if self.pending_rpc.len() < MAX_PENDING {
-                    self.pending_rpc.push(msg.clone());
+        let Some(pane_id) = msg.params.get("pane_id").and_then(|v| v.as_str()) else {
+            return;
+        };
+
+        if let Some(session) = self.sessions.iter_mut().find(|s| s.pane_id == pane_id) {
+            Self::apply_rpc_to_session(session, msg);
+        } else {
+            // Session not yet discovered — buffer for later
+            const MAX_PENDING: usize = 20;
+            if self.pending_rpc.len() < MAX_PENDING {
+                self.pending_rpc.push(msg.clone());
+            }
+        }
+    }
+
+    /// Apply an RPC message to the matching session.
+    fn apply_rpc_to_session(session: &mut ManagedSession, msg: &crate::rpc::RpcMessage) {
+        match msg.method.as_str() {
+            "session_start" => {
+                session.session_id =
+                    msg.params.get("session_id").and_then(|v| v.as_str()).map(String::from);
+                session.model =
+                    msg.params.get("model").and_then(|v| v.as_str()).map(String::from);
+            }
+            "status_update" => {
+                // Extract model.display_name from nested JSON
+                if let Some(display_name) = msg
+                    .params
+                    .get("model")
+                    .and_then(|m| m.get("display_name"))
+                    .and_then(|v| v.as_str())
+                {
+                    session.model = Some(display_name.to_string());
+                }
+                // Extract context window usage percentage
+                let cw = msg.params.get("context_window");
+                let size = cw
+                    .and_then(|c| c.get("context_window_size"))
+                    .and_then(serde_json::Value::as_u64)
+                    .unwrap_or(0);
+                if size > 0 {
+                    let usage = cw.and_then(|c| c.get("current_usage"));
+                    let tokens = usage.map_or(0, |u| {
+                        let i = u.get("input_tokens").and_then(serde_json::Value::as_u64).unwrap_or(0);
+                        let c = u
+                            .get("cache_creation_input_tokens")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0);
+                        let r = u
+                            .get("cache_read_input_tokens")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0);
+                        i + c + r
+                    });
+                    #[allow(clippy::cast_possible_truncation)]
+                    let pct = (tokens * 100 / size) as u8;
+                    session.context_percent = Some(pct);
                 }
             }
+            _ => {}
         }
     }
 }
@@ -910,7 +956,6 @@ mod tests {
     #[test]
     fn test_handle_rpc_session_start() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
         let monitor = make_monitor(vec![
@@ -918,14 +963,13 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
 
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%1".to_string());
-        params.insert("session_id".to_string(), "sess-abc".to_string());
-        params.insert("model".to_string(), "claude-sonnet-4-6".to_string());
-
         app.handle_rpc_message(&RpcMessage {
             method: "session_start".to_string(),
-            params,
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-abc",
+                "model": "claude-sonnet-4-6",
+            }),
         });
 
         assert_eq!(app.sessions[0].session_id, Some("sess-abc".to_string()));
@@ -935,7 +979,6 @@ mod tests {
     #[test]
     fn test_handle_rpc_session_start_unknown_pane() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
         let monitor = make_monitor(vec![
@@ -943,13 +986,12 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
 
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%99".to_string());
-        params.insert("session_id".to_string(), "sess-xyz".to_string());
-
         app.handle_rpc_message(&RpcMessage {
             method: "session_start".to_string(),
-            params,
+            params: serde_json::json!({
+                "pane_id": "%99",
+                "session_id": "sess-xyz",
+            }),
         });
 
         // Should not crash, and existing session should be unchanged
@@ -961,7 +1003,6 @@ mod tests {
     #[test]
     fn test_handle_rpc_missing_pane_id() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
         let monitor = make_monitor(vec![
@@ -969,12 +1010,11 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
 
-        let mut params = HashMap::new();
-        params.insert("session_id".to_string(), "sess-abc".to_string());
-
         app.handle_rpc_message(&RpcMessage {
             method: "session_start".to_string(),
-            params,
+            params: serde_json::json!({
+                "session_id": "sess-abc",
+            }),
         });
 
         // Without pane_id, nothing should be updated
@@ -984,7 +1024,6 @@ mod tests {
     #[test]
     fn test_handle_rpc_unknown_method() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
         let monitor = make_monitor(vec![
@@ -992,12 +1031,11 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
 
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%1".to_string());
-
         app.handle_rpc_message(&RpcMessage {
             method: "unknown_method".to_string(),
-            params,
+            params: serde_json::json!({
+                "pane_id": "%1",
+            }),
         });
 
         // Unknown method should not change anything
@@ -1007,7 +1045,6 @@ mod tests {
     #[test]
     fn test_rpc_fields_preserved_on_sync() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
         let monitor1 = make_monitor(vec![
@@ -1015,13 +1052,13 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor1);
 
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%1".to_string());
-        params.insert("session_id".to_string(), "sess-abc".to_string());
-        params.insert("model".to_string(), "opus".to_string());
         app.handle_rpc_message(&RpcMessage {
             method: "session_start".to_string(),
-            params,
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-abc",
+                "model": "opus",
+            }),
         });
 
         // Re-sync with state change
@@ -1138,19 +1175,16 @@ mod tests {
     #[test]
     fn test_rpc_before_session_is_buffered() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
 
-        // RPC arrives before any session exists
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%1".to_string());
-        params.insert("session_id".to_string(), "sess-early".to_string());
-        params.insert("model".to_string(), "opus".to_string());
-
         app.handle_rpc_message(&RpcMessage {
             method: "session_start".to_string(),
-            params,
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-early",
+                "model": "opus",
+            }),
         });
 
         // Should be buffered in pending_rpc
@@ -1161,19 +1195,16 @@ mod tests {
     #[test]
     fn test_pending_rpc_applied_after_sync() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
 
-        // RPC arrives before session
-        let mut params = HashMap::new();
-        params.insert("pane_id".to_string(), "%1".to_string());
-        params.insert("session_id".to_string(), "sess-early".to_string());
-        params.insert("model".to_string(), "opus".to_string());
-
         app.handle_rpc_message(&RpcMessage {
             method: "session_start".to_string(),
-            params,
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-early",
+                "model": "opus",
+            }),
         });
 
         // Now session appears via monitor
@@ -1191,18 +1222,17 @@ mod tests {
     #[test]
     fn test_pending_rpc_unmatched_retained() {
         use crate::rpc::RpcMessage;
-        use std::collections::HashMap;
 
         let mut app = AppState::new(None);
 
         // Two RPCs for different panes
         for (pane, sid) in [("%1", "sess-1"), ("%2", "sess-2")] {
-            let mut params = HashMap::new();
-            params.insert("pane_id".to_string(), pane.to_string());
-            params.insert("session_id".to_string(), sid.to_string());
             app.handle_rpc_message(&RpcMessage {
                 method: "session_start".to_string(),
-                params,
+                params: serde_json::json!({
+                    "pane_id": pane,
+                    "session_id": sid,
+                }),
             });
         }
         assert_eq!(app.pending_rpc.len(), 2);
@@ -1217,5 +1247,149 @@ mod tests {
         assert_eq!(app.pending_rpc.len(), 1);
         assert_eq!(app.pending_rpc[0].params["pane_id"], "%2");
         assert_eq!(app.sessions[0].session_id, Some("sess-1".to_string()));
+    }
+
+    // --- status_update RPC ---
+
+    #[test]
+    fn test_handle_rpc_status_update_sets_model_display_name() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "model": { "display_name": "Opus" },
+            }),
+        });
+
+        assert_eq!(app.sessions[0].model, Some("Opus".to_string()));
+    }
+
+    #[test]
+    fn test_status_update_overwrites_session_start_model() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // session_start sets model to ID format
+        app.handle_rpc_message(&RpcMessage {
+            method: "session_start".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "sess-abc",
+                "model": "claude-opus-4-6",
+            }),
+        });
+        assert_eq!(app.sessions[0].model, Some("claude-opus-4-6".to_string()));
+
+        // status_update overwrites with display_name
+        app.handle_rpc_message(&RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "model": { "display_name": "Opus" },
+            }),
+        });
+        assert_eq!(app.sessions[0].model, Some("Opus".to_string()));
+    }
+
+    #[test]
+    fn test_status_update_without_model_is_noop() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].model = Some("existing".to_string());
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+            }),
+        });
+
+        // Model should remain unchanged
+        assert_eq!(app.sessions[0].model, Some("existing".to_string()));
+    }
+
+    // --- context_percent ---
+
+    #[test]
+    fn test_status_update_sets_context_percent() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "model": { "display_name": "Opus" },
+                "context_window": {
+                    "context_window_size": 200_000,
+                    "current_usage": {
+                        "input_tokens": 50_000,
+                        "cache_creation_input_tokens": 30_000,
+                        "cache_read_input_tokens": 20_000,
+                    },
+                },
+            }),
+        });
+
+        // (50000 + 30000 + 20000) * 100 / 200000 = 50
+        assert_eq!(app.sessions[0].context_percent, Some(50));
+    }
+
+    #[test]
+    fn test_status_update_context_percent_zero_when_no_usage() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "model": { "display_name": "Opus" },
+                "context_window": {
+                    "context_window_size": 200_000,
+                    "current_usage": null,
+                },
+            }),
+        });
+
+        assert_eq!(app.sessions[0].context_percent, Some(0));
+    }
+
+    #[test]
+    fn test_new_session_has_no_context_percent() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].context_percent, None);
     }
 }

@@ -69,8 +69,8 @@ fn handle_notify(event: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut input = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
 
-    let mut params: std::collections::HashMap<String, String> =
-        serde_json::from_str(input.trim()).unwrap_or_default();
+    let mut params: serde_json::Value =
+        serde_json::from_str(input.trim()).unwrap_or_else(|_| serde_json::json!({}));
 
     // Add pane_id from $TMUX_PANE if available.
     // $TMUX_PANE is in %XX format, but tmux-claude-state uses session:window.pane format.
@@ -89,7 +89,9 @@ fn handle_notify(event: &str) -> Result<(), Box<dyn std::error::Error>> {
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .map(|s| s.trim().to_string())
             .unwrap_or(pane_id);
-        params.insert("pane_id".to_string(), resolved);
+        if let Some(obj) = params.as_object_mut() {
+            obj.insert("pane_id".to_string(), serde_json::Value::String(resolved));
+        }
     }
 
     let method = event.replace('-', "_");
