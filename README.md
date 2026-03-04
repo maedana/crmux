@@ -132,7 +132,6 @@ fi
 
 - Display worktree info per session
 - More layout options for multi-preview (currently horizontal equal split only)
-- Session status summary in footer (e.g. Running 3 / Idle 2 / Approval 1)
 - Programmatic control from external tools (e.g. tmux-style subcommands, MCP server)
 
 ## Limitations
