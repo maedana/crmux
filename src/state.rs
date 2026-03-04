@@ -130,6 +130,8 @@ pub struct AppState {
     pub preview_wrap: bool,
     /// RPC messages that arrived before the matching session was discovered.
     pub pending_rpc: Vec<crate::rpc::RpcMessage>,
+    /// Which mode Esc was pressed in (for Esc Esc cancel forwarding).
+    pub esc_source_mode: Option<InputMode>,
 }
 
 impl AppState {
@@ -148,6 +150,7 @@ impl AppState {
             pending_g: false,
             preview_wrap: false,
             pending_rpc: Vec::new(),
+            esc_source_mode: None,
         }
     }
 

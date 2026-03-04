@@ -34,6 +34,11 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
 }
 
 fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
+    // Clear esc_source_mode on any key except Esc
+    if code != KeyCode::Esc {
+        state.esc_source_mode = None;
+    }
+
     // Handle pending 'g' for gg (scroll to top)
     if state.pending_g {
         state.pending_g = false;
@@ -71,6 +76,28 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
         };
     }
     match code {
+        KeyCode::Esc => {
+            match state.esc_source_mode.take() {
+                Some(InputMode::Input) => {
+                    // Send Esc Esc to the selected pane, then return to Input mode
+                    if let Some(pane_id) = state.selected_pane_id() {
+                        run_send_keys(pane_id, &["Escape"]);
+                        run_send_keys(pane_id, &["Escape"]);
+                    }
+                    state.input_mode = InputMode::Input;
+                }
+                Some(InputMode::Broadcast) => {
+                    // Send Esc Esc to all marked panes, then return to Broadcast mode
+                    for pane_id in state.marked_pane_ids() {
+                        run_send_keys(&pane_id, &["Escape"]);
+                        run_send_keys(&pane_id, &["Escape"]);
+                    }
+                    state.input_mode = InputMode::Broadcast;
+                }
+                _ => {}
+            }
+            Action::Continue
+        }
         KeyCode::Char('q') => Action::Quit,
         KeyCode::Char('j') | KeyCode::Down => {
             state.select_next();
@@ -133,6 +160,7 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
 
 fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     if code == KeyCode::Esc {
+        state.esc_source_mode = Some(InputMode::Input);
         state.input_mode = InputMode::Normal;
     } else {
         // All other keys are forwarded to the tmux pane immediately
@@ -143,6 +171,7 @@ fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
 
 fn handle_broadcast_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     if code == KeyCode::Esc {
+        state.esc_source_mode = Some(InputMode::Broadcast);
         state.input_mode = InputMode::Normal;
     } else {
         send_key_to_marked_panes(code, modifiers, state);
@@ -1318,5 +1347,71 @@ mod tests {
         handle_key_event(&make_key_event(KeyCode::Char('w')), &mut state);
         assert!(state.preview_wrap);
         assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    // --- Esc Esc cancel forwarding tests ---
+
+    #[test]
+    fn test_input_mode_esc_sets_esc_source_mode() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Input;
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(state.input_mode, InputMode::Normal);
+        assert_eq!(state.esc_source_mode, Some(InputMode::Input));
+    }
+
+    #[test]
+    fn test_broadcast_mode_esc_sets_esc_source_mode() {
+        let mut state = make_state_with_marked_sessions();
+        state.input_mode = InputMode::Broadcast;
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(state.input_mode, InputMode::Normal);
+        assert_eq!(state.esc_source_mode, Some(InputMode::Broadcast));
+    }
+
+    #[test]
+    fn test_normal_esc_with_input_source_returns_to_input() {
+        let mut state = make_state_with_session();
+        state.esc_source_mode = Some(InputMode::Input);
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(state.input_mode, InputMode::Input);
+        assert_eq!(state.esc_source_mode, None);
+    }
+
+    #[test]
+    fn test_normal_esc_with_broadcast_source_returns_to_broadcast() {
+        let mut state = make_state_with_marked_sessions();
+        state.esc_source_mode = Some(InputMode::Broadcast);
+        handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(state.input_mode, InputMode::Broadcast);
+        assert_eq!(state.esc_source_mode, None);
+    }
+
+    #[test]
+    fn test_normal_esc_without_source_does_nothing() {
+        let mut state = make_state_with_session();
+        state.esc_source_mode = None;
+        let action = handle_key_event(&make_key_event(KeyCode::Esc), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.input_mode, InputMode::Normal);
+        assert_eq!(state.esc_source_mode, None);
+    }
+
+    #[test]
+    fn test_normal_other_key_clears_esc_source_mode() {
+        let mut state = make_state_with_session();
+        state.esc_source_mode = Some(InputMode::Input);
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        assert_eq!(state.esc_source_mode, None);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_esc_source_mode_cleared_on_ctrl_key() {
+        let mut state = make_state_with_session();
+        state.esc_source_mode = Some(InputMode::Input);
+        state.preview_height = 30;
+        handle_key_event(&make_ctrl_key_event(KeyCode::Char('u')), &mut state);
+        assert_eq!(state.esc_source_mode, None);
     }
 }
