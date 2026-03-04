@@ -131,7 +131,6 @@ fi
 ## Roadmap
 
 - Display worktree info per session
-- More layout options for multi-preview (currently horizontal equal split only)
 - Programmatic control from external tools (e.g. tmux-style subcommands, MCP server)
 
 ## Limitations
