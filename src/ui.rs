@@ -198,7 +198,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     )];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title w:Wrap ?:Help q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title w:Wrap o:Claudeye ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -382,6 +382,7 @@ Keybindings (Normal mode):
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
   w              Toggle preview line wrap
+  o              Toggle claudeye overlay (requires claudeye >= 0.7.0)
   ?              Show this help
   q              Quit crmux
 
@@ -921,6 +922,13 @@ mod tests {
         let spans = footer_spans(InputMode::Normal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("w:Wrap"), "Normal mode footer should contain 'w:Wrap', got: {text}");
+    }
+
+    #[test]
+    fn test_footer_normal_mode_contains_claudeye_key() {
+        let spans = footer_spans(InputMode::Normal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("o:Claudeye"), "Normal mode footer should contain 'o:Claudeye', got: {text}");
     }
 
     #[test]

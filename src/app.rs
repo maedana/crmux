@@ -61,7 +61,7 @@ const fn version_meets_minimum(
 }
 
 /// Minimum claudeye version required for --crmux support.
-const MIN_CLAUDEYE_VERSION: (u32, u32, u32) = (0, 3, 0);
+const MIN_CLAUDEYE_VERSION: (u32, u32, u32) = (0, 7, 0);
 
 /// Try to launch claudeye with --crmux flag if a compatible version is installed.
 fn launch_claudeye() -> Option<std::process::Child> {

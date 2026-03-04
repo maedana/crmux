@@ -146,7 +146,7 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.pending_g = true;
             Action::Continue
         }
-        KeyCode::Char('v') => {
+        KeyCode::Char('o') => {
             state.claudeye_visible = !state.claudeye_visible;
             Action::Continue
         }
@@ -1422,12 +1422,13 @@ mod tests {
     // --- v key toggles claudeye_visible ---
 
     #[test]
-    fn test_v_toggles_claudeye_visible() {
+    // --- o key toggles claudeye visible ---
+    fn test_o_toggles_claudeye_visible() {
         let mut state = AppState::new(None);
         assert!(!state.claudeye_visible);
-        handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('o')), &mut state);
         assert!(state.claudeye_visible);
-        handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('o')), &mut state);
         assert!(!state.claudeye_visible);
     }
 }
