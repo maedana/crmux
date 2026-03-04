@@ -361,29 +361,18 @@ impl AppState {
                 {
                     session.model = Some(display_name.to_string());
                 }
-                // Extract context window usage percentage
-                let cw = msg.params.get("context_window");
-                let size = cw
-                    .and_then(|c| c.get("context_window_size"))
+                // Extract context window used_percentage
+                if let Some(pct) = msg
+                    .params
+                    .get("context_window")
+                    .and_then(|c| c.get("used_percentage"))
                     .and_then(serde_json::Value::as_u64)
-                    .unwrap_or(0);
-                if size > 0 {
-                    let usage = cw.and_then(|c| c.get("current_usage"));
-                    let tokens = usage.map_or(0, |u| {
-                        let i = u.get("input_tokens").and_then(serde_json::Value::as_u64).unwrap_or(0);
-                        let c = u
-                            .get("cache_creation_input_tokens")
-                            .and_then(serde_json::Value::as_u64)
-                            .unwrap_or(0);
-                        let r = u
-                            .get("cache_read_input_tokens")
-                            .and_then(serde_json::Value::as_u64)
-                            .unwrap_or(0);
-                        i + c + r
-                    });
+                {
                     #[allow(clippy::cast_possible_truncation)]
-                    let pct = (tokens * 100 / size) as u8;
+                    let pct = pct as u8;
                     session.context_percent = Some(pct);
+                } else {
+                    session.context_percent = Some(0);
                 }
             }
             _ => {}
@@ -1344,22 +1333,16 @@ mod tests {
                 "pane_id": "%1",
                 "model": { "display_name": "Opus" },
                 "context_window": {
-                    "context_window_size": 200_000,
-                    "current_usage": {
-                        "input_tokens": 50_000,
-                        "cache_creation_input_tokens": 30_000,
-                        "cache_read_input_tokens": 20_000,
-                    },
+                    "used_percentage": 50,
                 },
             }),
         });
 
-        // (50000 + 30000 + 20000) * 100 / 200000 = 50
         assert_eq!(app.sessions[0].context_percent, Some(50));
     }
 
     #[test]
-    fn test_status_update_context_percent_zero_when_no_usage() {
+    fn test_status_update_context_percent_zero_when_no_used_percentage() {
         use crate::rpc::RpcMessage;
 
         let mut app = AppState::new(None);
@@ -1373,10 +1356,7 @@ mod tests {
             params: serde_json::json!({
                 "pane_id": "%1",
                 "model": { "display_name": "Opus" },
-                "context_window": {
-                    "context_window_size": 200_000,
-                    "current_usage": null,
-                },
+                "context_window": {},
             }),
         });
 

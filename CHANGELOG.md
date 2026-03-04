@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Added
+- Model display name via statusLine hook (e.g. "Opus" instead of "claude-opus-4-6")
+- Context window usage percentage display in sidebar (e.g. "Opus (45%)")
+
+### Changed
+- RPC params changed from flat `HashMap<String, String>` to `serde_json::Value` to support nested JSON
+
 ## 0.4.0
 
 ### Added

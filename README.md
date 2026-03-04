@@ -55,7 +55,9 @@ Keybindings are shown in the app footer. Run `crmux -h` or press `?` in the app 
 
 ## Claude Code Hook Setup (Optional)
 
-By configuring a Claude Code hook, crmux can display additional session metadata such as the model name. Add the following to `~/.claude/settings.json`:
+By configuring Claude Code hooks, crmux can display additional session metadata such as the model name and context window usage.
+
+Add the following to `~/.claude/settings.json`:
 
 ```json
 {
@@ -71,6 +73,40 @@ By configuring a Claude Code hook, crmux can display additional session metadata
         ]
       }
     ]
+  }
+}
+```
+
+To also display model display name (e.g. "Opus") and context window usage percentage, configure a `statusLine` command that pipes the status JSON to crmux. Create `~/.local/bin/ccstatus`:
+
+```bash
+#!/bin/bash
+input=$(cat)
+
+# Notify crmux of status update (non-blocking)
+echo "$input" | crmux notify status-update &
+
+MODEL=$(echo "$input" | jq -r '.model.display_name')
+CONTEXT_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size')
+USAGE=$(echo "$input" | jq '.context_window.current_usage')
+
+if [ "$USAGE" != "null" ]; then
+    CURRENT_TOKENS=$(echo "$USAGE" | jq '.input_tokens + .cache_creation_input_tokens + .cache_read_input_tokens')
+    PERCENT_USED=$((CURRENT_TOKENS * 100 / CONTEXT_SIZE))
+    echo "[$MODEL] Context: ${PERCENT_USED}%"
+else
+    echo "[$MODEL] Context: 0%"
+fi
+```
+
+Then add to `~/.claude/settings.json`:
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "ccstatus",
+    "padding": 0
   }
 }
 ```
