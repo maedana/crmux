@@ -176,13 +176,21 @@ pub fn draw(
     let selected_pane_id = sessions
         .get(selected_index)
         .map(|s| s.pane_id.as_str());
-    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id, preview_scroll, preview_wrap);
+    let preview_cursor = draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id, preview_scroll, preview_wrap);
 
     // Footer: app name + mode indicator + keybindings (full width)
-    let instructions = Paragraph::new(Line::from(footer_spans(input_mode)))
+    let footer_line = footer_spans(input_mode);
+    let instructions = Paragraph::new(Line::from(footer_line.clone()))
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);
+
+    // Insert/Broadcastモード時にカーソルを選択中プレビューペインの最下部に表示（IMEアンカー）
+    if matches!(input_mode, InputMode::Input | InputMode::Broadcast) {
+        if let Some((cx, cy)) = preview_cursor {
+            f.set_cursor_position((cx, cy));
+        }
+    }
 
     // Help popup overlay
     if show_help {
@@ -237,6 +245,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
 }
 
 /// Draw the right panel: preview pane(s).
+/// Returns the cursor position (x, y) for the selected preview pane's bottom-left (IME anchor).
 fn draw_right_panel(
     f: &mut ratatui::Frame,
     preview_contents: &[PreviewEntry],
@@ -246,11 +255,12 @@ fn draw_right_panel(
     selected_pane_id: Option<&str>,
     preview_scroll: u16,
     preview_wrap: bool,
-) {
-    draw_preview_panes(f, preview_contents, area, selected_pane_id, preview_scroll, preview_wrap);
+) -> Option<(u16, u16)> {
+    draw_preview_panes(f, preview_contents, area, selected_pane_id, preview_scroll, preview_wrap)
 }
 
 /// Draw one or more preview panes, splitting the area vertically.
+/// Returns the cursor position (x, y) for the selected preview pane's bottom-left (IME anchor).
 fn draw_preview_panes(
     f: &mut ratatui::Frame,
     preview_contents: &[PreviewEntry],
@@ -258,7 +268,7 @@ fn draw_preview_panes(
     selected_pane_id: Option<&str>,
     preview_scroll: u16,
     preview_wrap: bool,
-) {
+) -> Option<(u16, u16)> {
     if preview_contents.is_empty() {
         let preview = Paragraph::new("No session selected").block(
             Block::default()
@@ -267,7 +277,7 @@ fn draw_preview_panes(
                 .border_style(Style::default().fg(Color::Gray)),
         );
         f.render_widget(preview, area);
-        return;
+        return None;
     }
 
     if preview_contents.len() == 1 {
@@ -298,8 +308,10 @@ fn draw_preview_panes(
         if preview_wrap {
             preview = preview.wrap(Wrap { trim: false });
         }
+        let inner = Block::default().borders(Borders::ALL).inner(area);
+        let cursor_pos = (inner.x, inner.y + inner.height.saturating_sub(1));
         f.render_widget(preview, area);
-        return;
+        return Some(cursor_pos);
     }
 
     // Multiple previews: grid layout
@@ -319,6 +331,7 @@ fn draw_preview_panes(
         .split(area);
 
     let mut idx = 0;
+    let mut cursor_pos = None;
     for (row_idx, &items_in_row) in row_items.iter().enumerate() {
         // Split each row into columns
         #[allow(clippy::cast_possible_truncation)]
@@ -362,10 +375,15 @@ fn draw_preview_panes(
             if preview_wrap {
                 preview = preview.wrap(Wrap { trim: false });
             }
+            if is_focused {
+                let inner = Block::default().borders(Borders::ALL).inner(cell_area);
+                cursor_pos = Some((inner.x, inner.y + inner.height.saturating_sub(1)));
+            }
             f.render_widget(preview, cell_area);
             idx += 1;
         }
     }
+    cursor_pos
 }
 
 pub const HELP_TEXT: &str = "\
@@ -942,6 +960,20 @@ mod tests {
     fn test_help_text_contains_wrap_description() {
         assert!(HELP_TEXT.contains("w "), "HELP_TEXT should mention 'w' key");
         assert!(HELP_TEXT.to_lowercase().contains("wrap"), "HELP_TEXT should mention 'wrap'");
+    }
+
+    #[test]
+    fn test_footer_spans_input_mode_not_empty() {
+        let spans = footer_spans(InputMode::Input);
+        let text_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        assert!(text_len > 0, "Input mode footer should produce non-empty text");
+    }
+
+    #[test]
+    fn test_footer_spans_broadcast_mode_not_empty() {
+        let spans = footer_spans(InputMode::Broadcast);
+        let text_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        assert!(text_len > 0, "Broadcast mode footer should produce non-empty text");
     }
 
     #[test]
