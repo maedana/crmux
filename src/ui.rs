@@ -153,6 +153,7 @@ pub fn draw(
     show_help: bool,
     help_scroll: u16,
     preview_scroll: u16,
+    preview_wrap: bool,
 ) {
     let size = f.area();
 
@@ -175,7 +176,7 @@ pub fn draw(
     let selected_pane_id = sessions
         .get(selected_index)
         .map(|s| s.pane_id.as_str());
-    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id, preview_scroll);
+    draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id, preview_scroll, preview_wrap);
 
     // Footer: app name + mode indicator + keybindings (full width)
     let instructions = Paragraph::new(Line::from(footer_spans(input_mode)))
@@ -197,7 +198,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     )];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title ?:Help q:Quit"));
+            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title w:Wrap ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -229,7 +230,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
                 "-- SCROLL --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | j/k:Scroll C-u/C-d:Page gg:Top G:Bottom i:Input I:Broadcast Esc:Back"));
+            spans.push(Span::raw(" | j/k:Scroll C-u/C-d:Page gg:Top G:Bottom i:Input I:Broadcast w:Wrap Esc:Back"));
         }
     }
     spans
@@ -244,8 +245,9 @@ fn draw_right_panel(
     area: ratatui::layout::Rect,
     selected_pane_id: Option<&str>,
     preview_scroll: u16,
+    preview_wrap: bool,
 ) {
-    draw_preview_panes(f, preview_contents, area, selected_pane_id, preview_scroll);
+    draw_preview_panes(f, preview_contents, area, selected_pane_id, preview_scroll, preview_wrap);
 }
 
 /// Draw one or more preview panes, splitting the area vertically.
@@ -255,6 +257,7 @@ fn draw_preview_panes(
     area: ratatui::layout::Rect,
     selected_pane_id: Option<&str>,
     preview_scroll: u16,
+    preview_wrap: bool,
 ) {
     if preview_contents.is_empty() {
         let preview = Paragraph::new("No session selected").block(
@@ -284,7 +287,7 @@ fn draw_preview_panes(
         if preview_scroll > 0 {
             title.push_str(" [SCROLL]");
         }
-        let preview = Paragraph::new(preview_text)
+        let mut preview = Paragraph::new(preview_text)
             .block(
                 Block::default()
                     .title(format!("{SELECTED_ICON}{title}"))
@@ -292,6 +295,9 @@ fn draw_preview_panes(
                     .border_style(Style::default().fg(Color::Gray)),
             )
             .scroll((scroll_y, 0));
+        if preview_wrap {
+            preview = preview.wrap(Wrap { trim: false });
+        }
         f.render_widget(preview, area);
         return;
     }
@@ -345,7 +351,7 @@ fn draw_preview_panes(
             };
             let title_prefix = if is_focused { SELECTED_ICON } else { "" };
             let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
-            let preview = Paragraph::new(preview_text)
+            let mut preview = Paragraph::new(preview_text)
                 .block(
                     Block::default()
                         .title(format!("{title_prefix}{title}"))
@@ -353,6 +359,9 @@ fn draw_preview_panes(
                         .border_style(Style::default().fg(Color::Gray)),
                 )
                 .scroll((scroll_y, 0));
+            if preview_wrap {
+                preview = preview.wrap(Wrap { trim: false });
+            }
             f.render_widget(preview, cell_area);
             idx += 1;
         }
@@ -372,6 +381,7 @@ Keybindings (Normal mode):
   i              Enter input mode (send keys to the selected session)
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
+  w              Toggle preview line wrap
   ?              Show this help
   q              Quit crmux
 
@@ -384,6 +394,7 @@ Keybindings (Scroll mode):
   G              Scroll preview to bottom (exit scroll mode)
   i              Enter input mode (reset scroll)
   I              Enter broadcast mode (reset scroll)
+  w              Toggle preview line wrap
   Esc            Reset scroll and return to normal mode
 
 Keybindings (Input mode):
@@ -903,6 +914,26 @@ mod tests {
     fn test_grid_row_items_5_panes_3_cols() {
         // 5ペイン3列 → [3, 2]
         assert_eq!(grid_row_items(5, 3), vec![3, 2]);
+    }
+
+    #[test]
+    fn test_footer_normal_mode_contains_wrap_key() {
+        let spans = footer_spans(InputMode::Normal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("w:Wrap"), "Normal mode footer should contain 'w:Wrap', got: {text}");
+    }
+
+    #[test]
+    fn test_footer_scroll_mode_contains_wrap_key() {
+        let spans = footer_spans(InputMode::Scroll);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("w:Wrap"), "Scroll mode footer should contain 'w:Wrap', got: {text}");
+    }
+
+    #[test]
+    fn test_help_text_contains_wrap_description() {
+        assert!(HELP_TEXT.contains("w "), "HELP_TEXT should mention 'w' key");
+        assert!(HELP_TEXT.to_lowercase().contains("wrap"), "HELP_TEXT should mention 'wrap'");
     }
 
     #[test]

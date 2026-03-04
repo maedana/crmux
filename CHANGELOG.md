@@ -4,6 +4,7 @@
 
 ### Added
 - Grid layout for multi-mark preview: automatically arranges panes side-by-side on wide terminals (cols = width / 80), falling back to vertical stack on narrow screens
+- Preview wrap toggle (`w` key): wrap long lines that extend beyond the preview pane width
 
 ## 0.5.0
 

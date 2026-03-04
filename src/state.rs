@@ -126,6 +126,8 @@ pub struct AppState {
     pub preview_height: u16,
     /// Whether `g` has been pressed once, waiting for the second `g` (vim `gg`).
     pub pending_g: bool,
+    /// Whether preview panes wrap long lines.
+    pub preview_wrap: bool,
     /// RPC messages that arrived before the matching session was discovered.
     pub pending_rpc: Vec<crate::rpc::RpcMessage>,
 }
@@ -144,6 +146,7 @@ impl AppState {
             preview_scroll: 0,
             preview_height: 0,
             pending_g: false,
+            preview_wrap: false,
             pending_rpc: Vec::new(),
         }
     }

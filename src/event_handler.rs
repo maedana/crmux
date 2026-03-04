@@ -119,6 +119,10 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.pending_g = true;
             Action::Continue
         }
+        KeyCode::Char('w') => {
+            state.preview_wrap = !state.preview_wrap;
+            Action::Continue
+        }
         KeyCode::Char('?') => {
             state.show_help = true;
             Action::Continue
@@ -267,6 +271,10 @@ fn handle_scroll_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
                 state.reset_preview_scroll();
                 state.input_mode = InputMode::Broadcast;
             }
+            Action::Continue
+        }
+        KeyCode::Char('w') => {
+            state.preview_wrap = !state.preview_wrap;
             Action::Continue
         }
         _ => Action::Continue,
@@ -1280,6 +1288,35 @@ mod tests {
         state.input_mode = InputMode::Scroll;
         state.preview_scroll = 10;
         handle_key_event(&make_key_event(KeyCode::Char('i')), &mut state);
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    // --- Preview wrap toggle tests ---
+
+    #[test]
+    fn test_w_toggles_preview_wrap_on() {
+        let mut state = AppState::new(None);
+        assert!(!state.preview_wrap);
+        handle_key_event(&make_key_event(KeyCode::Char('w')), &mut state);
+        assert!(state.preview_wrap);
+    }
+
+    #[test]
+    fn test_w_toggles_preview_wrap_off() {
+        let mut state = AppState::new(None);
+        state.preview_wrap = true;
+        handle_key_event(&make_key_event(KeyCode::Char('w')), &mut state);
+        assert!(!state.preview_wrap);
+    }
+
+    #[test]
+    fn test_w_toggles_preview_wrap_in_scroll_mode() {
+        let mut state = make_state_with_session();
+        state.input_mode = InputMode::Scroll;
+        state.preview_scroll = 10;
+        assert!(!state.preview_wrap);
+        handle_key_event(&make_key_event(KeyCode::Char('w')), &mut state);
+        assert!(state.preview_wrap);
         assert_eq!(state.input_mode, InputMode::Scroll);
     }
 }

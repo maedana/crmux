@@ -177,6 +177,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 app_state.show_help,
                 app_state.help_scroll,
                 app_state.preview_scroll,
+                app_state.preview_wrap,
             );
         })?;
 
