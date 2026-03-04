@@ -132,6 +132,8 @@ pub struct AppState {
     pub pending_rpc: Vec<crate::rpc::RpcMessage>,
     /// Which mode Esc was pressed in (for Esc Esc cancel forwarding).
     pub esc_source_mode: Option<InputMode>,
+    /// Whether the claudeye overlay is visible.
+    pub claudeye_visible: bool,
 }
 
 impl AppState {
@@ -151,6 +153,7 @@ impl AppState {
             preview_wrap: false,
             pending_rpc: Vec::new(),
             esc_source_mode: None,
+            claudeye_visible: false,
         }
     }
 
@@ -396,6 +399,37 @@ impl AppState {
             }
             _ => {}
         }
+    }
+
+    /// Serialize all sessions and visibility state as a JSON value.
+    pub fn serialize_sessions(&self) -> serde_json::Value {
+        let sessions: Vec<serde_json::Value> = self
+            .sessions
+            .iter()
+            .map(|s| {
+                let state_name = match s.state {
+                    ClaudeState::Idle => "Idle",
+                    ClaudeState::Working => "Working",
+                    ClaudeState::WaitingForApproval => "Waiting",
+                };
+                serde_json::json!({
+                    "pane_id": s.pane_id,
+                    "pid": s.pid,
+                    "project_name": s.project_name,
+                    "state": state_name,
+                    "elapsed_secs": s.state_changed_at.elapsed().as_secs(),
+                    "model": s.model,
+                    "context_percent": s.context_percent,
+                    "title": s.display_title(),
+                    "session_id": s.session_id,
+                    "git_branch": s.git_branch,
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "sessions": sessions,
+            "visible": self.claudeye_visible,
+        })
     }
 }
 
@@ -1444,5 +1478,72 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
         assert_eq!(app.sessions[0].context_percent, None);
+    }
+
+    // --- claudeye_visible ---
+
+    #[test]
+    fn test_claudeye_visible_default_false() {
+        let app = AppState::new(None);
+        assert!(!app.claudeye_visible);
+    }
+
+    #[test]
+    fn test_claudeye_visible_toggle() {
+        let mut app = AppState::new(None);
+        app.claudeye_visible = false;
+        assert!(!app.claudeye_visible);
+        app.claudeye_visible = true;
+        assert!(app.claudeye_visible);
+    }
+
+    // --- serialize_sessions ---
+
+    #[test]
+    fn test_serialize_sessions_empty() {
+        let app = AppState::new(None);
+        let result = app.serialize_sessions();
+        assert_eq!(result["sessions"], serde_json::json!([]));
+        assert_eq!(result["visible"], false);
+    }
+
+    #[test]
+    fn test_serialize_sessions_one() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].model = Some("Opus".to_string());
+        app.sessions[0].context_percent = Some(23);
+        app.sessions[0].title = Some("implementing feature X".to_string());
+        app.sessions[0].session_id = Some("abc-123".to_string());
+        app.sessions[0].git_branch = Some("main".to_string());
+
+        let result = app.serialize_sessions();
+        let sessions = result["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 1);
+
+        let s = &sessions[0];
+        assert_eq!(s["pane_id"], "%1");
+        assert_eq!(s["pid"], 100);
+        assert_eq!(s["project_name"], "crmux");
+        assert_eq!(s["state"], "Working");
+        assert_eq!(s["model"], "Opus");
+        assert_eq!(s["context_percent"], 23);
+        assert_eq!(s["title"], "implementing feature X");
+        assert_eq!(s["session_id"], "abc-123");
+        assert_eq!(s["git_branch"], "main");
+        // elapsed_secs should be a non-negative number
+        assert!(s["elapsed_secs"].as_u64().is_some());
+        assert_eq!(result["visible"], false);
+    }
+
+    #[test]
+    fn test_serialize_sessions_visible_true() {
+        let mut app = AppState::new(None);
+        app.claudeye_visible = true;
+        let result = app.serialize_sessions();
+        assert_eq!(result["visible"], true);
     }
 }

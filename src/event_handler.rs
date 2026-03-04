@@ -146,6 +146,10 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.pending_g = true;
             Action::Continue
         }
+        KeyCode::Char('v') => {
+            state.claudeye_visible = !state.claudeye_visible;
+            Action::Continue
+        }
         KeyCode::Char('w') => {
             state.preview_wrap = !state.preview_wrap;
             Action::Continue
@@ -1413,5 +1417,17 @@ mod tests {
         state.preview_height = 30;
         handle_key_event(&make_ctrl_key_event(KeyCode::Char('u')), &mut state);
         assert_eq!(state.esc_source_mode, None);
+    }
+
+    // --- v key toggles claudeye_visible ---
+
+    #[test]
+    fn test_v_toggles_claudeye_visible() {
+        let mut state = AppState::new(None);
+        assert!(!state.claudeye_visible);
+        handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        assert!(state.claudeye_visible);
+        handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        assert!(!state.claudeye_visible);
     }
 }

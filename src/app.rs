@@ -36,6 +36,61 @@ fn capture_pane_with_scrollback(pane_id: &str, scrollback_lines: u16) -> String 
     }
 }
 
+/// Parse a version string like "claudeye 0.3.0\n" into (major, minor, patch).
+fn parse_claudeye_version(output: &str) -> Option<(u32, u32, u32)> {
+    let version_str = output.trim().strip_prefix("claudeye ")?;
+    let mut parts = version_str.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    let patch = parts.next()?.parse().ok()?;
+    Some((major, minor, patch))
+}
+
+/// Check if version meets the minimum required version.
+const fn version_meets_minimum(
+    version: (u32, u32, u32),
+    minimum: (u32, u32, u32),
+) -> bool {
+    if version.0 != minimum.0 {
+        return version.0 > minimum.0;
+    }
+    if version.1 != minimum.1 {
+        return version.1 > minimum.1;
+    }
+    version.2 >= minimum.2
+}
+
+/// Minimum claudeye version required for --crmux support.
+const MIN_CLAUDEYE_VERSION: (u32, u32, u32) = (0, 3, 0);
+
+/// Try to launch claudeye with --crmux flag if a compatible version is installed.
+fn launch_claudeye() -> Option<std::process::Child> {
+    // Check if claudeye is available
+    let version_output = Command::new("claudeye")
+        .arg("--version")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !version_output.status.success() {
+        return None;
+    }
+
+    let version_str = String::from_utf8_lossy(&version_output.stdout);
+    let version = parse_claudeye_version(&version_str)?;
+    if !version_meets_minimum(version, MIN_CLAUDEYE_VERSION) {
+        return None;
+    }
+
+    Command::new("claudeye")
+        .arg("--crmux")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()
+}
+
 /// Run the TUI application.
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let own_pid = std::process::id();
@@ -64,9 +119,34 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let rpc_server = crate::rpc::RpcServer::start().ok();
+    let app_state = Arc::new(Mutex::new(AppState::new(Some(own_pid))));
 
-    let result = run_event_loop(&mut terminal, &monitor_state, own_pid, rpc_server.as_ref());
+    let handler_state = Arc::clone(&app_state);
+    let handler: crate::rpc::RequestHandler = Arc::new(move |method, _params| {
+        if method == "get_sessions"
+            && let Ok(state) = handler_state.lock()
+        {
+            return state.serialize_sessions();
+        }
+        serde_json::Value::Null
+    });
+    let rpc_server = crate::rpc::RpcServer::start(Some(handler)).ok();
+
+    let mut claudeye_child: Option<std::process::Child> = None;
+
+    let result = run_event_loop(
+        &mut terminal,
+        &monitor_state,
+        &app_state,
+        rpc_server.as_ref(),
+        &mut claudeye_child,
+    );
+
+    // Shut down claudeye child process
+    if let Some(ref mut child) = claudeye_child {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
 
     // Terminal cleanup
     execute!(terminal.backend_mut(), DisableBracketedPaste)?;
@@ -88,127 +168,175 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     monitor_state: &Arc<Mutex<MonitorState>>,
-    own_pid: u32,
+    app_state: &Arc<Mutex<AppState>>,
     rpc_server: Option<&crate::rpc::RpcServer>,
+    claudeye_child: &mut Option<std::process::Child>,
 ) -> io::Result<()> {
-    let mut app_state = AppState::new(Some(own_pid));
     let mut last_branch_refresh = std::time::Instant::now()
         .checked_sub(Duration::from_secs(10))
         .unwrap_or_else(std::time::Instant::now);
 
     loop {
-        // Sync with monitor state
-        if let Ok(monitor) = monitor_state.lock() {
-            app_state.sync_with_monitor(&monitor);
-        }
+        {
+            let mut state = app_state.lock().map_err(|e| {
+                io::Error::other(e.to_string())
+            })?;
 
-        // Refresh git branches and auto titles periodically (every 5 seconds)
-        if last_branch_refresh.elapsed() >= Duration::from_secs(5) {
-            app_state.refresh_git_branches();
-            app_state.refresh_auto_titles();
-            last_branch_refresh = std::time::Instant::now();
-        }
+            // Sync with monitor state
+            if let Ok(monitor) = monitor_state.lock() {
+                state.sync_with_monitor(&monitor);
+            }
 
-        // Process RPC messages
-        if let Some(server) = rpc_server {
-            let mut received_rpc = false;
-            while let Some(msg) = server.try_recv() {
-                app_state.handle_rpc_message(&msg);
-                received_rpc = true;
+            // Refresh git branches and auto titles periodically (every 5 seconds)
+            if last_branch_refresh.elapsed() >= Duration::from_secs(5) {
+                state.refresh_git_branches();
+                state.refresh_auto_titles();
+                last_branch_refresh = std::time::Instant::now();
             }
-            if received_rpc {
-                app_state.refresh_auto_titles();
-            }
-        }
 
-        // Update preview contents
-        let marked = app_state.marked_sessions();
-        if marked.is_empty() {
-            // No marked sessions: show the selected session
-            if let Some(session) = app_state.selected_session() {
-                let content = if app_state.preview_scroll > 0 {
-                    let scrollback_lines = app_state.preview_height.saturating_mul(3);
-                    capture_pane_with_scrollback(&session.pane_id, scrollback_lines)
-                } else {
-                    tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id)
-                };
-                app_state.preview_contents = vec![PreviewEntry {
-                    name: session.project_name.clone(),
-                    pane_id: session.pane_id.clone(),
-                    title: session.display_title().map(String::from),
-                    content,
-                }];
-            } else {
-                app_state.preview_contents.clear();
+            // Process RPC messages
+            if let Some(server) = rpc_server {
+                let mut received_rpc = false;
+                while let Some(msg) = server.try_recv() {
+                    state.handle_rpc_message(&msg);
+                    received_rpc = true;
+                }
+                if received_rpc {
+                    state.refresh_auto_titles();
+                }
             }
-        } else {
-            // Show all marked sessions (scrollback only for focused pane)
-            let selected_pane = app_state.selected_pane_id().map(String::from);
-            let entries: Vec<PreviewEntry> = marked
-                .iter()
-                .map(|s| {
-                    let is_focused = selected_pane.as_deref() == Some(s.pane_id.as_str());
-                    let content = if is_focused && app_state.preview_scroll > 0 {
-                        let scrollback_lines = app_state.preview_height.saturating_mul(3);
-                        capture_pane_with_scrollback(&s.pane_id, scrollback_lines)
+
+            // Update preview contents
+            let marked = state.marked_sessions();
+            if marked.is_empty() {
+                // No marked sessions: show the selected session
+                if let Some(session) = state.selected_session() {
+                    let content = if state.preview_scroll > 0 {
+                        let scrollback_lines = state.preview_height.saturating_mul(3);
+                        capture_pane_with_scrollback(&session.pane_id, scrollback_lines)
                     } else {
-                        tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id)
+                        tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id)
                     };
-                    PreviewEntry {
-                        name: s.project_name.clone(),
-                        pane_id: s.pane_id.clone(),
-                        title: s.display_title().map(String::from),
+                    state.preview_contents = vec![PreviewEntry {
+                        name: session.project_name.clone(),
+                        pane_id: session.pane_id.clone(),
+                        title: session.display_title().map(String::from),
                         content,
-                    }
-                })
-                .collect();
-            app_state.preview_contents = entries;
-        }
+                    }];
+                } else {
+                    state.preview_contents.clear();
+                }
+            } else {
+                // Show all marked sessions (scrollback only for focused pane)
+                let selected_pane = state.selected_pane_id().map(String::from);
+                let entries: Vec<PreviewEntry> = marked
+                    .iter()
+                    .map(|s| {
+                        let is_focused =
+                            selected_pane.as_deref() == Some(s.pane_id.as_str());
+                        let content = if is_focused && state.preview_scroll > 0 {
+                            let scrollback_lines =
+                                state.preview_height.saturating_mul(3);
+                            capture_pane_with_scrollback(&s.pane_id, scrollback_lines)
+                        } else {
+                            tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id)
+                        };
+                        PreviewEntry {
+                            name: s.project_name.clone(),
+                            pane_id: s.pane_id.clone(),
+                            title: s.display_title().map(String::from),
+                            content,
+                        }
+                    })
+                    .collect();
+                state.preview_contents = entries;
+            }
 
-        // Draw TUI
-        let frame = terminal.draw(|f| {
-            ui::draw(
-                f,
-                &app_state.sessions,
-                app_state.selected_index,
-                &app_state.preview_contents,
-                app_state.input_mode,
-                &app_state.input_buffer,
-                app_state.show_help,
-                app_state.help_scroll,
-                app_state.preview_scroll,
-                app_state.preview_wrap,
-            );
-        })?;
+            // Draw TUI
+            let frame = terminal.draw(|f| {
+                ui::draw(
+                    f,
+                    &state.sessions,
+                    state.selected_index,
+                    &state.preview_contents,
+                    state.input_mode,
+                    &state.input_buffer,
+                    state.show_help,
+                    state.help_scroll,
+                    state.preview_scroll,
+                    state.preview_wrap,
+                );
+            })?;
 
-        // Update preview_height from terminal size (total height minus footer and borders)
-        // When grid layout is active, divide by number of rows so scroll amounts
-        // match per-pane height.
-        let total_preview_height = frame.area.height.saturating_sub(5);
-        let preview_count = app_state.preview_contents.len();
-        if preview_count > 1 {
-            let available_width = frame.area.width.saturating_sub(30); // sidebar 30 cols
-            let (_cols, rows) = ui::compute_grid(preview_count, available_width, ui::MIN_PANE_WIDTH);
-            app_state.preview_height = total_preview_height / rows.max(1) as u16;
-        } else {
-            app_state.preview_height = total_preview_height;
+            // Update preview_height from terminal size
+            let total_preview_height = frame.area.height.saturating_sub(5);
+            let preview_count = state.preview_contents.len();
+            if preview_count > 1 {
+                let available_width = frame.area.width.saturating_sub(30);
+                let (_cols, rows) =
+                    ui::compute_grid(preview_count, available_width, ui::MIN_PANE_WIDTH);
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    state.preview_height =
+                        total_preview_height / (rows.max(1) as u16);
+                }
+            } else {
+                state.preview_height = total_preview_height;
+            }
+        } // lock released here before polling for events
+
+        // Launch claudeye on first toggle to visible
+        if claudeye_child.is_none() {
+            if let Ok(s) = app_state.lock() {
+                if s.claudeye_visible {
+                    *claudeye_child = launch_claudeye();
+                }
+            }
         }
 
         // Wait for at least one event or timeout for periodic refresh
         if event::poll(Duration::from_millis(50))? {
+            let mut state = app_state.lock().map_err(|e| {
+                io::Error::other(e.to_string())
+            })?;
             let ev = event::read()?;
-            match event_handler::handle_key_event(&ev, &mut app_state) {
+            match event_handler::handle_key_event(&ev, &mut state) {
                 Action::Quit => return Ok(()),
                 Action::Continue => {}
             }
             // Drain all remaining pending events before next capture/draw cycle
             while event::poll(Duration::ZERO)? {
                 let ev = event::read()?;
-                match event_handler::handle_key_event(&ev, &mut app_state) {
+                match event_handler::handle_key_event(&ev, &mut state) {
                     Action::Quit => return Ok(()),
                     Action::Continue => {}
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_claudeye_version() {
+        assert_eq!(parse_claudeye_version("claudeye 0.3.0\n"), Some((0, 3, 0)));
+        assert_eq!(parse_claudeye_version("claudeye 1.0.0\n"), Some((1, 0, 0)));
+        assert_eq!(parse_claudeye_version("claudeye 0.12.3\n"), Some((0, 12, 3)));
+        assert_eq!(parse_claudeye_version("invalid"), None);
+        assert_eq!(parse_claudeye_version(""), None);
+        assert_eq!(parse_claudeye_version("claudeye abc\n"), None);
+    }
+
+    #[test]
+    fn test_version_meets_minimum() {
+        assert!(version_meets_minimum((0, 3, 0), (0, 3, 0)));
+        assert!(version_meets_minimum((0, 4, 0), (0, 3, 0)));
+        assert!(version_meets_minimum((1, 0, 0), (0, 3, 0)));
+        assert!(!version_meets_minimum((0, 2, 0), (0, 3, 0)));
+        assert!(!version_meets_minimum((0, 2, 9), (0, 3, 0)));
+        assert!(version_meets_minimum((0, 3, 1), (0, 3, 0)));
     }
 }

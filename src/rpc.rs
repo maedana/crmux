@@ -3,8 +3,11 @@ use serde_json::Value;
 use std::io::{self, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 use std::thread;
+
+/// Type alias for a request handler function.
+pub type RequestHandler = Arc<dyn Fn(&str, &Value) -> Value + Send + Sync>;
 
 /// An RPC notification received from a client.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -28,6 +31,143 @@ pub fn encode_notification(method: &str, params: &Value) -> Vec<u8> {
     let params_bytes = rmp_serde::to_vec(params).expect("encode params");
     buf.extend_from_slice(&params_bytes);
     buf
+}
+
+/// Encode an RPC request as msgpack-rpc wire format: `[0, msgid, method, params]`
+#[cfg(test)]
+pub fn encode_request(msgid: u32, method: &str, params: &Value) -> Vec<u8> {
+    let mut buf = Vec::new();
+    rmp::encode::write_array_len(&mut buf, 4).expect("encode array len");
+    rmp::encode::write_uint(&mut buf, 0).expect("encode type");
+    rmp::encode::write_uint(&mut buf, u64::from(msgid)).expect("encode msgid");
+    rmp::encode::write_str(&mut buf, method).expect("encode method");
+    let params_bytes = rmp_serde::to_vec(params).expect("encode params");
+    buf.extend_from_slice(&params_bytes);
+    buf
+}
+
+/// Decode an RPC request from msgpack-rpc wire format: `[0, msgid, method, params]`
+pub fn decode_request(data: &[u8]) -> io::Result<(u32, String, Value)> {
+    let mut cursor = io::Cursor::new(data);
+
+    let array_len = rmp::decode::read_array_len(&mut cursor)
+        .map_err(|e: rmp::decode::ValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })?;
+    if array_len != 4 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected array of 4, got {array_len}"),
+        ));
+    }
+
+    let msg_type = rmp::decode::read_int::<u64, _>(&mut cursor)
+        .map_err(|e: rmp::decode::NumValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })?;
+    if msg_type != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected type 0 (request), got {msg_type}"),
+        ));
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    let msgid = rmp::decode::read_int::<u64, _>(&mut cursor)
+        .map_err(|e: rmp::decode::NumValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })? as u32;
+
+    let mut method_buf = vec![0u8; 256];
+    let method = rmp::decode::read_str(&mut cursor, &mut method_buf)
+        .map_err(|e: rmp::decode::DecodeStringError<'_>| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })?
+        .to_string();
+
+    #[allow(clippy::cast_possible_truncation)]
+    let remaining = &data[cursor.position() as usize..];
+    let params: Value = rmp_serde::from_slice(remaining)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    Ok((msgid, method, params))
+}
+
+/// Encode an RPC response as msgpack-rpc wire format: `[1, msgid, null, result]`
+pub fn encode_response(msgid: u32, result: &Value) -> Vec<u8> {
+    let mut buf = Vec::new();
+    rmp::encode::write_array_len(&mut buf, 4).expect("encode array len");
+    rmp::encode::write_uint(&mut buf, 1).expect("encode type");
+    rmp::encode::write_uint(&mut buf, u64::from(msgid)).expect("encode msgid");
+    rmp::encode::write_nil(&mut buf).expect("encode nil error");
+    let result_bytes = rmp_serde::to_vec(result).expect("encode result");
+    buf.extend_from_slice(&result_bytes);
+    buf
+}
+
+/// Decode an RPC response from msgpack-rpc wire format: `[1, msgid, null, result]`
+#[cfg(test)]
+pub fn decode_response(data: &[u8]) -> io::Result<(u32, Value)> {
+    let mut cursor = io::Cursor::new(data);
+
+    let array_len = rmp::decode::read_array_len(&mut cursor)
+        .map_err(|e: rmp::decode::ValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })?;
+    if array_len != 4 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected array of 4, got {array_len}"),
+        ));
+    }
+
+    let msg_type = rmp::decode::read_int::<u64, _>(&mut cursor)
+        .map_err(|e: rmp::decode::NumValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })?;
+    if msg_type != 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("expected type 1 (response), got {msg_type}"),
+        ));
+    }
+
+    #[allow(clippy::cast_possible_truncation)]
+    let msgid = rmp::decode::read_int::<u64, _>(&mut cursor)
+        .map_err(|e: rmp::decode::NumValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })? as u32;
+
+    // Skip the error field (null)
+    rmp::decode::read_nil(&mut cursor)
+        .map_err(|e: rmp::decode::ValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })?;
+
+    #[allow(clippy::cast_possible_truncation)]
+    let remaining = &data[cursor.position() as usize..];
+    let result: Value = rmp_serde::from_slice(remaining)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+
+    Ok((msgid, result))
+}
+
+/// Determine the msgpack-rpc message type (0=request, 1=response, 2=notification).
+pub fn message_type(data: &[u8]) -> io::Result<u8> {
+    let mut cursor = io::Cursor::new(data);
+
+    let _array_len = rmp::decode::read_array_len(&mut cursor)
+        .map_err(|e: rmp::decode::ValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })?;
+
+    #[allow(clippy::cast_possible_truncation)]
+    let msg_type = rmp::decode::read_int::<u64, _>(&mut cursor)
+        .map_err(|e: rmp::decode::NumValueReadError| {
+            io::Error::new(io::ErrorKind::InvalidData, e.to_string())
+        })? as u8;
+
+    Ok(msg_type)
 }
 
 /// Decode an RPC notification from msgpack-rpc wire format: `[2, method, params]`
@@ -79,7 +219,7 @@ pub struct RpcServer {
 
 impl RpcServer {
     /// Start the RPC server, binding to the socket and spawning a listener thread.
-    pub fn start() -> io::Result<Self> {
+    pub fn start(handler: Option<RequestHandler>) -> io::Result<Self> {
         let path = socket_path();
 
         // Remove stale socket file if it exists
@@ -93,7 +233,7 @@ impl RpcServer {
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
-            Self::accept_loop(&listener, &tx);
+            Self::accept_loop(&listener, &tx, handler.as_ref());
         });
 
         Ok(Self {
@@ -102,16 +242,15 @@ impl RpcServer {
         })
     }
 
-    fn accept_loop(listener: &UnixListener, tx: &mpsc::Sender<RpcMessage>) {
+    fn accept_loop(
+        listener: &UnixListener,
+        tx: &mpsc::Sender<RpcMessage>,
+        handler: Option<&RequestHandler>,
+    ) {
         loop {
             match listener.accept() {
                 Ok((stream, _)) => {
-                    if let Some(msg) = Self::read_message(stream)
-                        && tx.send(msg).is_err()
-                    {
-                        // Main thread dropped the receiver, exit
-                        break;
-                    }
+                    Self::handle_connection(stream, tx, handler);
                 }
                 Err(ref e) if e.kind() == io::ErrorKind::WouldBlock => {
                     // No pending connections, sleep briefly
@@ -124,10 +263,40 @@ impl RpcServer {
         }
     }
 
-    fn read_message(mut stream: UnixStream) -> Option<RpcMessage> {
+    fn handle_connection(
+        mut stream: UnixStream,
+        tx: &mpsc::Sender<RpcMessage>,
+        handler: Option<&RequestHandler>,
+    ) {
         let mut buf = Vec::new();
-        stream.read_to_end(&mut buf).ok()?;
-        decode_notification(&buf).ok()
+        if stream.read_to_end(&mut buf).is_err() || buf.is_empty() {
+            return;
+        }
+
+        let Ok(msg_type) = message_type(&buf) else {
+            return;
+        };
+
+        match msg_type {
+            0 => {
+                // Request: decode, call handler, send response
+                if let (Some(handler), Ok((msgid, method, params))) =
+                    (handler, decode_request(&buf))
+                {
+                    let result = handler(&method, &params);
+                    let response = encode_response(msgid, &result);
+                    let _ = stream.write_all(&response);
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                }
+            }
+            2 => {
+                // Notification: decode and forward via channel
+                if let Ok(msg) = decode_notification(&buf) {
+                    let _ = tx.send(msg);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Non-blocking receive of the next RPC message.
@@ -252,6 +421,47 @@ mod tests {
         );
     }
 
+    // --- request/response encode/decode round-trip ---
+
+    #[test]
+    fn test_encode_decode_request_round_trip() {
+        let params = serde_json::json!({"key": "value"});
+        let encoded = encode_request(42, "get_sessions", &params);
+        let (msgid, method, decoded_params) = decode_request(&encoded).unwrap();
+        assert_eq!(msgid, 42);
+        assert_eq!(method, "get_sessions");
+        assert_eq!(decoded_params["key"], "value");
+    }
+
+    #[test]
+    fn test_encode_decode_response_round_trip() {
+        let result = serde_json::json!({"sessions": []});
+        let encoded = encode_response(42, &result);
+        let (msgid, decoded_result) = decode_response(&encoded).unwrap();
+        assert_eq!(msgid, 42);
+        assert_eq!(decoded_result["sessions"], serde_json::json!([]));
+    }
+
+    // --- message_type ---
+
+    #[test]
+    fn test_message_type_request() {
+        let encoded = encode_request(1, "test", &serde_json::json!({}));
+        assert_eq!(message_type(&encoded).unwrap(), 0);
+    }
+
+    #[test]
+    fn test_message_type_response() {
+        let encoded = encode_response(1, &serde_json::json!({}));
+        assert_eq!(message_type(&encoded).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_message_type_notification() {
+        let encoded = encode_notification("test", &serde_json::json!({}));
+        assert_eq!(message_type(&encoded).unwrap(), 2);
+    }
+
     // --- RpcServer integration test ---
 
     #[test]
@@ -269,7 +479,7 @@ mod tests {
         let (tx, rx) = mpsc::channel();
 
         thread::spawn(move || {
-            RpcServer::accept_loop(&listener, &tx);
+            RpcServer::accept_loop(&listener, &tx, None::<&RequestHandler>);
         });
 
         // Send a notification
@@ -291,6 +501,88 @@ mod tests {
         assert_eq!(msg.params["session_id"], "test-session");
 
         // Cleanup
+        let _ = std::fs::remove_file(&test_path);
+    }
+
+    #[test]
+    fn test_server_handles_request_response() {
+        use std::sync::Arc;
+
+        let uid = unsafe { libc::getuid() };
+        let test_path = PathBuf::from(format!(
+            "/tmp/crmux-test-req-{uid}-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&test_path);
+
+        let listener = UnixListener::bind(&test_path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let (tx, _rx) = mpsc::channel();
+
+        let handler: RequestHandler = Arc::new(|method, _params| {
+            if method == "get_sessions" {
+                serde_json::json!({"sessions": [{"name": "test"}]})
+            } else {
+                serde_json::json!(null)
+            }
+        });
+
+        thread::spawn(move || {
+            RpcServer::accept_loop(&listener, &tx, Some(&handler));
+        });
+
+        // Send a request
+        let mut stream = UnixStream::connect(&test_path).unwrap();
+        let data = encode_request(1, "get_sessions", &serde_json::json!({}));
+        stream.write_all(&data).unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+
+        // Read response
+        let mut response_buf = Vec::new();
+        stream.read_to_end(&mut response_buf).unwrap();
+
+        let (msgid, result) = decode_response(&response_buf).unwrap();
+        assert_eq!(msgid, 1);
+        assert_eq!(result["sessions"][0]["name"], "test");
+
+        let _ = std::fs::remove_file(&test_path);
+    }
+
+    #[test]
+    fn test_server_still_handles_notifications_with_handler() {
+        use std::sync::Arc;
+
+        let uid = unsafe { libc::getuid() };
+        let test_path = PathBuf::from(format!(
+            "/tmp/crmux-test-notif-{uid}-{}.sock",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&test_path);
+
+        let listener = UnixListener::bind(&test_path).unwrap();
+        listener.set_nonblocking(true).unwrap();
+
+        let (tx, rx) = mpsc::channel();
+
+        let handler: RequestHandler = Arc::new(|_method, _params| serde_json::json!(null));
+
+        thread::spawn(move || {
+            RpcServer::accept_loop(&listener, &tx, Some(&handler));
+        });
+
+        // Send a notification
+        let params = serde_json::json!({"pane_id": "%1"});
+        let mut stream = UnixStream::connect(&test_path).unwrap();
+        let data = encode_notification("session_start", &params);
+        stream.write_all(&data).unwrap();
+        stream.shutdown(std::net::Shutdown::Write).unwrap();
+        drop(stream);
+
+        let msg = rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap();
+        assert_eq!(msg.method, "session_start");
+        assert_eq!(msg.params["pane_id"], "%1");
+
         let _ = std::fs::remove_file(&test_path);
     }
 }
