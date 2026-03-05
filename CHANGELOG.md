@@ -3,9 +3,14 @@
 ## Unreleased
 
 ### Added
+- Esc Esc cancel forwarding: pressing `Esc` again right after returning to Normal mode from Input/Broadcast mode forwards Esc Esc to the tmux pane to cancel Claude Code
+- claudeye socket integration with RPC request-response (`o` key to toggle)
+- Show cursor at preview pane bottom in Insert/Broadcast mode for IME pre-edit text
+
+## 0.6.0
+
+### Added
 - Grid layout for multi-mark preview: automatically arranges panes side-by-side on wide terminals (cols = width / 80), falling back to vertical stack on narrow screens
-- Preview wrap toggle (`w` key): wrap long lines that extend beyond the preview pane width
-- Esc Esc cancel forwarding: Input/Broadcastモードから`Esc`でNormalモードに戻った直後に再度`Esc`を押すと、Esc Escをtmuxペインに転送してClaude Codeのキャンセル操作を実行
 
 ## 0.5.0
 
