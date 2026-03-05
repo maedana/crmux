@@ -16,7 +16,6 @@ Inspired by [cmux](https://www.cmux.dev). crmux brings a similar multi-session m
 ## Prerequisites
 
 - tmux
-- [tmux-claude-state](https://github.com/maedana/claudeye/tree/main/crates/tmux-claude-state)
 - Rust (latest stable version) -- only required when building from source
 - (Optional) [claudeye](https://github.com/maedana/claudeye) for overlay integration (`o` key to toggle)
 
