@@ -22,6 +22,32 @@ use crate::event_handler::{self, Action};
 use crate::state::{AppState, PreviewEntry};
 use crate::ui;
 
+/// Strip OSC 8 hyperlink sequences, preserving the visible link text.
+///
+/// OSC 8 format: `\x1b]8;;URL\x1b\\ link_text \x1b]8;;\x1b\\`
+/// The terminator can be either ST (`\x1b\\`) or BEL (`\x07`).
+fn strip_osc8_hyperlinks(input: &str) -> String {
+    // OSC 8 marker: \x1b]8;  (ESC ] 8 ;)
+    const MARKER: &str = "\x1b]8;";
+    let mut result = String::with_capacity(input.len());
+    let mut rest = input;
+
+    while let Some(pos) = rest.find(MARKER) {
+        result.push_str(&rest[..pos]);
+        // Skip past the marker
+        rest = &rest[pos + MARKER.len()..];
+        // Skip until ST (\x1b\\) or BEL (\x07)
+        let end = rest.find("\x1b\\").map(|p| p + 2)
+            .or_else(|| rest.find('\x07').map(|p| p + 1));
+        match end {
+            Some(e) => rest = &rest[e..],
+            None => break,
+        }
+    }
+    result.push_str(rest);
+    result
+}
+
 /// Capture a tmux pane with scrollback history (ANSI escapes preserved).
 fn capture_pane_with_scrollback(pane_id: &str, scrollback_lines: u16) -> String {
     let start_line = format!("-{scrollback_lines}");
@@ -213,9 +239,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 if let Some(session) = state.selected_session() {
                     let content = if state.preview_scroll > 0 {
                         let scrollback_lines = state.preview_height.saturating_mul(3);
-                        capture_pane_with_scrollback(&session.pane_id, scrollback_lines)
+                        strip_osc8_hyperlinks(&capture_pane_with_scrollback(&session.pane_id, scrollback_lines))
                     } else {
-                        tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id)
+                        strip_osc8_hyperlinks(&tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id))
                     };
                     state.preview_contents = vec![PreviewEntry {
                         name: session.project_name.clone(),
@@ -237,9 +263,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         let content = if is_focused && state.preview_scroll > 0 {
                             let scrollback_lines =
                                 state.preview_height.saturating_mul(3);
-                            capture_pane_with_scrollback(&s.pane_id, scrollback_lines)
+                            strip_osc8_hyperlinks(&capture_pane_with_scrollback(&s.pane_id, scrollback_lines))
                         } else {
-                            tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id)
+                            strip_osc8_hyperlinks(&tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id))
                         };
                         PreviewEntry {
                             name: s.project_name.clone(),
@@ -327,6 +353,46 @@ mod tests {
         assert_eq!(parse_claudeye_version("invalid"), None);
         assert_eq!(parse_claudeye_version(""), None);
         assert_eq!(parse_claudeye_version("claudeye abc\n"), None);
+    }
+
+    #[test]
+    fn test_strip_osc8_hyperlinks_basic() {
+        let input = "\x1b]8;;file:///path/to/file.rb\x1b\\file.rb\x1b]8;;\x1b\\";
+        assert_eq!(strip_osc8_hyperlinks(input), "file.rb");
+    }
+
+    #[test]
+    fn test_strip_osc8_hyperlinks_in_context() {
+        let input = "Update(\x1b]8;;file:///spec/test_spec.rb\x1b\\spec/test_spec.rb\x1b]8;;\x1b\\)";
+        assert_eq!(
+            strip_osc8_hyperlinks(input),
+            "Update(spec/test_spec.rb)"
+        );
+    }
+
+    #[test]
+    fn test_strip_osc8_hyperlinks_no_links() {
+        let input = "normal text with \x1b[31mcolor\x1b[0m";
+        assert_eq!(strip_osc8_hyperlinks(input), input);
+    }
+
+    #[test]
+    fn test_strip_osc8_hyperlinks_multiple() {
+        let input = "\x1b]8;;url1\x1b\\a.rb\x1b]8;;\x1b\\ and \x1b]8;;url2\x1b\\b.rb\x1b]8;;\x1b\\";
+        assert_eq!(strip_osc8_hyperlinks(input), "a.rb and b.rb");
+    }
+
+    #[test]
+    fn test_strip_osc8_hyperlinks_multibyte() {
+        let input = "日本語テキスト \x1b]8;;file:///path\x1b\\リンク\x1b]8;;\x1b\\ の表示";
+        assert_eq!(strip_osc8_hyperlinks(input), "日本語テキスト リンク の表示");
+    }
+
+    #[test]
+    fn test_strip_osc8_hyperlinks_bel_terminator() {
+        // Some terminals use BEL (\x07) instead of ST (\x1b\\)
+        let input = "\x1b]8;;file:///path\x07link text\x1b]8;;\x07";
+        assert_eq!(strip_osc8_hyperlinks(input), "link text");
     }
 
     #[test]
