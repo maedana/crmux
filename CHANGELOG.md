@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.7.0
 
 ### Added
 - Esc Esc cancel forwarding: pressing `Esc` again right after returning to Normal mode from Input/Broadcast mode forwards Esc Esc to the tmux pane to cancel Claude Code
