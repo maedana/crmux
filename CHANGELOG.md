@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- Strip OSC 8 hyperlinks from captured pane content to fix rendering artifacts in preview
+
+### Added
+- GitHub Actions release workflow for automated binary builds on tag push
+- `install.sh` for curl-based one-liner installation
+- Release profile optimizations (LTO, strip, opt-level=s)
+- Quick install section in README
+
 ## 0.7.0
 
 ### Added
