@@ -30,5 +30,11 @@ all = "warn"
 pedantic = "warn"
 nursery = "warn"
 
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true
+
 [dev-dependencies]
 tempfile = "3.26.0"

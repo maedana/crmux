@@ -17,15 +17,21 @@ Inspired by [cmux](https://www.cmux.dev). crmux brings a similar multi-session m
 
 - tmux
 - [tmux-claude-state](https://github.com/maedana/claudeye/tree/main/crates/tmux-claude-state)
-- Rust (latest stable version)
+- Rust (latest stable version) -- only required when building from source
 - (Optional) [claudeye](https://github.com/maedana/claudeye) for overlay integration (`o` key to toggle)
 
 ## Installation
 
-### From crates.io (Recommended)
+### Quick install
 
 ```sh
-cargo install crmux
+curl -sSL https://raw.githubusercontent.com/maedana/crmux/main/install.sh | sh
+```
+
+### From crates.io
+
+```sh
+cargo install crmux --locked
 ```
 
 After installation, make sure `~/.cargo/bin` is in your PATH, then you can run:
