@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0
 
 ### Fixed
 - Strip OSC 8 hyperlinks from captured pane content to fix rendering artifacts in preview
