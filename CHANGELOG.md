@@ -10,6 +10,7 @@
 - `install.sh` for curl-based one-liner installation
 - Release profile optimizations (LTO, strip, opt-level=s)
 - Quick install section in README
+- `send_text` RPC method: external tools can send text to the selected pane via `echo '{"text": "..."}' | crmux notify send-text`
 
 ## 0.7.0
 

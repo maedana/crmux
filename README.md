@@ -134,10 +134,18 @@ fi
 
 </details>
 
+## Sending Text from External Tools
+
+External tools can send text to the currently selected pane via the `send_text` RPC method:
+
+```sh
+echo '{"text": "hello"}' | crmux notify send-text
+```
+
 ## Roadmap
 
 - Display worktree info per session
-- Programmatic control from external tools (e.g. tmux-style subcommands, MCP server)
+- Programmatic control from external tools (partial: `send_text` RPC available, more subcommands planned)
 
 ## Limitations
 
