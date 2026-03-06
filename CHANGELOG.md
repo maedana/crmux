@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0
+
+### Added
+- Tab-based session filtering by project name (`h`/`l` to switch tabs, default: all)
+- Apply tab filter to claudeye overlay via `serialize_sessions`
+- `send_text` RPC method: external tools can send text to the selected pane via `echo '{"text": "..."}' | crmux notify send-text`
+
+### Fixed
+- Fix preview area top clipping by trimming trailing blank lines
+
+### Changed
+- Improve Normal mode footer readability with grouped keybindings (`hjkl:Nav`, `Preview(...)`, `Input(...)`)
+
 ## 0.8.0
 
 ### Fixed
@@ -10,7 +23,6 @@
 - `install.sh` for curl-based one-liner installation
 - Release profile optimizations (LTO, strip, opt-level=s)
 - Quick install section in README
-- `send_text` RPC method: external tools can send text to the selected pane via `echo '{"text": "..."}' | crmux notify send-text`
 
 ## 0.7.0
 
