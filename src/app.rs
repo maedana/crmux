@@ -48,6 +48,15 @@ fn strip_osc8_hyperlinks(input: &str) -> String {
     result
 }
 
+/// Capture a tmux pane, strip OSC8 hyperlinks, and trim trailing blank lines.
+fn capture_pane_content(pane_id: &str, scrollback_lines: Option<u16>) -> String {
+    let raw = match scrollback_lines {
+        Some(lines) => capture_pane_with_scrollback(pane_id, lines),
+        None => tmux_claude_state::tmux::capture_pane_with_ansi(pane_id),
+    };
+    strip_osc8_hyperlinks(&raw).trim_end().to_string()
+}
+
 /// Capture a tmux pane with scrollback history (ANSI escapes preserved).
 fn capture_pane_with_scrollback(pane_id: &str, scrollback_lines: u16) -> String {
     let start_line = format!("-{scrollback_lines}");
@@ -241,9 +250,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 if let Some(session) = state.selected_session() {
                     let content = if state.preview_scroll > 0 {
                         let scrollback_lines = state.preview_height.saturating_mul(3);
-                        strip_osc8_hyperlinks(&capture_pane_with_scrollback(&session.pane_id, scrollback_lines))
+                        capture_pane_content(&session.pane_id, Some(scrollback_lines))
                     } else {
-                        strip_osc8_hyperlinks(&tmux_claude_state::tmux::capture_pane_with_ansi(&session.pane_id))
+                        capture_pane_content(&session.pane_id, None)
                     };
                     state.preview_contents = vec![PreviewEntry {
                         name: session.project_name.clone(),
@@ -265,9 +274,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         let content = if is_focused && state.preview_scroll > 0 {
                             let scrollback_lines =
                                 state.preview_height.saturating_mul(3);
-                            strip_osc8_hyperlinks(&capture_pane_with_scrollback(&s.pane_id, scrollback_lines))
+                            capture_pane_content(&s.pane_id, Some(scrollback_lines))
                         } else {
-                            strip_osc8_hyperlinks(&tmux_claude_state::tmux::capture_pane_with_ansi(&s.pane_id))
+                            capture_pane_content(&s.pane_id, None)
                         };
                         PreviewEntry {
                             name: s.project_name.clone(),
