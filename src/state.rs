@@ -503,8 +503,8 @@ impl AppState {
     /// Serialize all sessions and visibility state as a JSON value.
     pub fn serialize_sessions(&self) -> serde_json::Value {
         let sessions: Vec<serde_json::Value> = self
-            .sessions
-            .iter()
+            .filtered_sessions()
+            .into_iter()
             .map(|s| {
                 let state_name = match s.state {
                     ClaudeState::Idle => "Idle",
@@ -1657,6 +1657,29 @@ mod tests {
         app.claudeye_visible = true;
         let result = app.serialize_sessions();
         assert_eq!(result["visible"], true);
+    }
+
+    #[test]
+    fn test_serialize_sessions_filtered_by_tab() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Working),
+            make_session(200, "%2", "aegis", ClaudeState::Idle),
+            make_session(300, "%3", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // All tab returns all sessions
+        let result = app.serialize_sessions();
+        let sessions = result["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 3);
+
+        // Select "crmux" project tab
+        app.tab_state.selected_tab = 2; // Tab::Project("crmux")
+        let result = app.serialize_sessions();
+        let sessions = result["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions.iter().all(|s| s["project_name"] == "crmux"));
     }
 
     // --- TabState tests ---
