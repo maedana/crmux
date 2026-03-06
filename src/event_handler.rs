@@ -399,7 +399,7 @@ fn handle_paste_event(text: &str, state: &AppState) -> Action {
 }
 
 /// Send pasted text to tmux pane(s) using set-buffer + paste-buffer -p.
-fn send_paste_to_panes(pane_ids: &[&str], text: &str) {
+pub fn send_paste_to_panes(pane_ids: &[&str], text: &str) {
     if pane_ids.is_empty() {
         return;
     }

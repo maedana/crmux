@@ -439,6 +439,15 @@ impl AppState {
     /// Handle an incoming RPC message, updating session metadata.
     /// If the target session is not yet known, the message is buffered in `pending_rpc`.
     pub fn handle_rpc_message(&mut self, msg: &crate::rpc::RpcMessage) {
+        if msg.method == "send_text" {
+            if let Some(text) = msg.params.get("text").and_then(|v| v.as_str())
+                && let Some(pane_id) = self.selected_pane_id()
+            {
+                crate::event_handler::send_paste_to_panes(&[pane_id], text);
+            }
+            return;
+        }
+
         let Some(pane_id) = msg.params.get("pane_id").and_then(|v| v.as_str()) else {
             return;
         };
@@ -1870,6 +1879,54 @@ mod tests {
         assert_eq!(app.selected_index, 1);
         app.select_next();
         assert_eq!(app.selected_index, 0); // wraps at 2, not 3
+    }
+
+    // --- send_text RPC ---
+
+    #[test]
+    fn test_send_text_missing_text_does_not_panic() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({}),
+        });
+        // Should not panic
+    }
+
+    #[test]
+    fn test_send_text_no_selected_session_does_not_panic() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        // No sessions — selected_pane_id() returns None
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({ "text": "hello" }),
+        });
+        // Should not panic
+    }
+
+    #[test]
+    fn test_send_text_does_not_enter_pending_rpc() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        // No sessions — would normally be buffered in pending_rpc
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({ "text": "hello" }),
+        });
+
+        assert!(app.pending_rpc.is_empty());
     }
 
     #[test]
