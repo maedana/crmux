@@ -191,6 +191,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+// Main event loop: sync → draw → handle events. Splitting would scatter the sequential logic.
+#[allow(clippy::too_many_lines)]
 fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     terminal: &mut Terminal<B>,
     monitor_state: &Arc<Mutex<MonitorState>>,
@@ -279,10 +281,11 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             }
 
             // Draw TUI
+            let filtered: Vec<_> = state.filtered_sessions().into_iter().cloned().collect();
             let frame = terminal.draw(|f| {
                 ui::draw(
                     f,
-                    &state.sessions,
+                    &filtered,
                     state.selected_index,
                     &state.preview_contents,
                     state.input_mode,
@@ -290,6 +293,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     state.show_help,
                     state.help_scroll,
                     state.preview_scroll,
+                    &state.tab_state,
                 );
             })?;
 
@@ -300,6 +304,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 let available_width = frame.area.width.saturating_sub(30);
                 let (_cols, rows) =
                     ui::compute_grid(preview_count, available_width, ui::MIN_PANE_WIDTH);
+                // Grid rows are bounded by terminal height, well within u16.
                 #[allow(clippy::cast_possible_truncation)]
                 {
                     state.preview_height =
@@ -311,12 +316,11 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
         } // lock released here before polling for events
 
         // Launch claudeye on first toggle to visible
-        if claudeye_child.is_none() {
-            if let Ok(s) = app_state.lock() {
-                if s.claudeye_visible {
-                    *claudeye_child = launch_claudeye();
-                }
-            }
+        if claudeye_child.is_none()
+            && let Ok(s) = app_state.lock()
+            && s.claudeye_visible
+        {
+            *claudeye_child = launch_claudeye();
         }
 
         // Wait for at least one event or timeout for periodic refresh

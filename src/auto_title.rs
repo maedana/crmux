@@ -117,10 +117,10 @@ pub fn resolve_auto_title(cwd: &str, session_id: &str) -> Option<String> {
     }
 
     // 3. Fallback: last user message from session JSONL
-    if let Ok(file) = std::fs::File::open(&jsonl_path) {
-        if let Some(prompt) = extract_last_prompt_from_jsonl(&file) {
-            return Some(prompt);
-        }
+    if let Ok(file) = std::fs::File::open(&jsonl_path)
+        && let Some(prompt) = extract_last_prompt_from_jsonl(&file)
+    {
+        return Some(prompt);
     }
 
     None

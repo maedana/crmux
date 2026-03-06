@@ -33,6 +33,68 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
     }
 }
 
+#[derive(Clone, Copy)]
+enum Direction {
+    Next,
+    Prev,
+}
+
+/// Switch to the next/prev tab, maintaining selection by PID when possible.
+fn switch_tab(state: &mut AppState, dir: Direction) {
+    let selected_pid = state.selected_session().map(|s| s.pid);
+    match dir {
+        Direction::Next => state.tab_state.select_next_tab(),
+        Direction::Prev => state.tab_state.select_prev_tab(),
+    }
+    state.preview_scroll = 0;
+    let filtered = state.filtered_sessions();
+    state.selected_index = selected_pid
+        .and_then(|pid| filtered.iter().position(|s| s.pid == pid))
+        .unwrap_or(0);
+}
+
+/// Handle Ctrl+ key combinations in normal mode.
+fn handle_normal_ctrl(code: KeyCode, state: &mut AppState) -> Action {
+    match code {
+        KeyCode::Char('u') => {
+            let half = state.preview_height / 2;
+            let max = state.preview_height.saturating_mul(3);
+            state.scroll_preview_up(half, max);
+            if state.preview_scroll > 0 {
+                state.input_mode = InputMode::Scroll;
+            }
+            Action::Continue
+        }
+        KeyCode::Char('d') => {
+            let half = state.preview_height / 2;
+            state.scroll_preview_down(half);
+            Action::Continue
+        }
+        _ => Action::Continue,
+    }
+}
+
+/// Handle Esc in normal mode: forward Esc Esc to panes if coming from Input/Broadcast.
+fn handle_normal_esc(state: &mut AppState) {
+    match state.esc_source_mode.take() {
+        Some(InputMode::Input) => {
+            if let Some(pane_id) = state.selected_pane_id() {
+                run_send_keys(pane_id, &["Escape"]);
+                run_send_keys(pane_id, &["Escape"]);
+            }
+            state.input_mode = InputMode::Input;
+        }
+        Some(InputMode::Broadcast) => {
+            for pane_id in state.marked_pane_ids() {
+                run_send_keys(&pane_id, &["Escape"]);
+                run_send_keys(&pane_id, &["Escape"]);
+            }
+            state.input_mode = InputMode::Broadcast;
+        }
+        _ => {}
+    }
+}
+
 fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     // Clear esc_source_mode on any key except Esc
     if code != KeyCode::Esc {
@@ -55,47 +117,12 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
         };
     }
 
-    // Handle Ctrl+ combinations first
     if modifiers.contains(KeyModifiers::CONTROL) {
-        return match code {
-            KeyCode::Char('u') => {
-                let half = state.preview_height / 2;
-                let max = state.preview_height.saturating_mul(3);
-                state.scroll_preview_up(half, max);
-                if state.preview_scroll > 0 {
-                    state.input_mode = InputMode::Scroll;
-                }
-                Action::Continue
-            }
-            KeyCode::Char('d') => {
-                let half = state.preview_height / 2;
-                state.scroll_preview_down(half);
-                Action::Continue
-            }
-            _ => Action::Continue,
-        };
+        return handle_normal_ctrl(code, state);
     }
     match code {
         KeyCode::Esc => {
-            match state.esc_source_mode.take() {
-                Some(InputMode::Input) => {
-                    // Send Esc Esc to the selected pane, then return to Input mode
-                    if let Some(pane_id) = state.selected_pane_id() {
-                        run_send_keys(pane_id, &["Escape"]);
-                        run_send_keys(pane_id, &["Escape"]);
-                    }
-                    state.input_mode = InputMode::Input;
-                }
-                Some(InputMode::Broadcast) => {
-                    // Send Esc Esc to all marked panes, then return to Broadcast mode
-                    for pane_id in state.marked_pane_ids() {
-                        run_send_keys(&pane_id, &["Escape"]);
-                        run_send_keys(&pane_id, &["Escape"]);
-                    }
-                    state.input_mode = InputMode::Broadcast;
-                }
-                _ => {}
-            }
+            handle_normal_esc(state);
             Action::Continue
         }
         KeyCode::Char('q') => Action::Quit,
@@ -150,6 +177,14 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.claudeye_visible = !state.claudeye_visible;
             Action::Continue
         }
+        KeyCode::Char('h') | KeyCode::Left => {
+            switch_tab(state, Direction::Prev);
+            Action::Continue
+        }
+        KeyCode::Char('l') | KeyCode::Right => {
+            switch_tab(state, Direction::Next);
+            Action::Continue
+        }
         KeyCode::Char('?') => {
             state.show_help = true;
             Action::Continue
@@ -179,6 +214,8 @@ fn handle_broadcast_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut App
     Action::Continue
 }
 
+// HELP_TEXT is a short static string; line count never exceeds u16::MAX.
+#[allow(clippy::cast_possible_truncation)]
 fn help_line_count() -> u16 {
     crate::ui::HELP_TEXT.lines().count() as u16
 }
@@ -273,6 +310,8 @@ fn handle_scroll_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.scroll_preview_up(1, max);
             Action::Continue
         }
+        // Intentionally separate from the Esc arm below for readability:
+        // G resets scroll and exits, Esc does the same but semantically different.
         #[allow(clippy::match_same_arms)]
         KeyCode::Char('G') => {
             state.reset_preview_scroll();
@@ -351,7 +390,7 @@ fn handle_paste_event(text: &str, state: &AppState) -> Action {
         }
         InputMode::Broadcast => {
             let pane_ids = state.marked_pane_ids();
-            let refs: Vec<&str> = pane_ids.iter().map(|s| s.as_str()).collect();
+            let refs: Vec<&str> = pane_ids.iter().map(String::as_str).collect();
             send_paste_to_panes(&refs, text);
         }
         InputMode::Normal | InputMode::Title | InputMode::Scroll => {}
@@ -410,7 +449,7 @@ fn send_key_to_marked_panes(code: KeyCode, modifiers: KeyModifiers, state: &AppS
 }
 
 /// Map a `KeyCode` to its tmux key name for special keys.
-fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
+const fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
     match code {
         KeyCode::Enter => Some("Enter"),
         KeyCode::Backspace => Some("BSpace"),
@@ -1393,5 +1432,107 @@ mod tests {
         assert!(state.claudeye_visible);
         handle_key_event(&make_key_event(KeyCode::Char('o')), &mut state);
         assert!(!state.claudeye_visible);
+    }
+
+    // --- Tab switching tests ---
+
+    fn make_state_with_tabs() -> AppState {
+        use crate::state::ManagedSession;
+        let mut state = AppState::new(None);
+        for (pid, pane, project) in [(100, "%1", "aegis"), (200, "%2", "crmux"), (300, "%3", "crmux")] {
+            state.sessions.push(ManagedSession {
+                pid,
+                pane_id: pane.to_string(),
+                project_name: project.to_string(),
+                state: ClaudeState::Idle,
+                state_changed_at: Instant::now(),
+                marked: false,
+                title: None,
+                session_id: None,
+                model: None,
+                context_percent: None,
+                cwd: format!("/home/user/{project}"),
+                git_branch: None,
+                auto_title: None,
+            });
+        }
+        state.tab_state.rebuild_tabs(&state.sessions);
+        state
+    }
+
+    #[test]
+    fn test_l_moves_to_next_tab() {
+        let mut state = make_state_with_tabs();
+        assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::All);
+        handle_key_event(&make_key_event(KeyCode::Char('l')), &mut state);
+        assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::Project("aegis".to_string()));
+    }
+
+    #[test]
+    fn test_h_moves_to_prev_tab() {
+        let mut state = make_state_with_tabs();
+        // Move to last tab first
+        state.tab_state.selected_tab = 2; // crmux
+        handle_key_event(&make_key_event(KeyCode::Char('h')), &mut state);
+        assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::Project("aegis".to_string()));
+    }
+
+    #[test]
+    fn test_tab_switch_wraps_around() {
+        let mut state = make_state_with_tabs();
+        // tabs: All, aegis, crmux (3 tabs)
+        state.tab_state.selected_tab = 2; // crmux (last)
+        handle_key_event(&make_key_event(KeyCode::Char('l')), &mut state);
+        assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::All); // wraps to first
+    }
+
+    #[test]
+    fn test_tab_switch_resets_preview_scroll() {
+        let mut state = make_state_with_tabs();
+        state.preview_scroll = 42;
+        handle_key_event(&make_key_event(KeyCode::Char('l')), &mut state);
+        assert_eq!(state.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_input_mode_h_does_not_switch_tab() {
+        let mut state = make_state_with_tabs();
+        state.input_mode = InputMode::Input;
+        let tab_before = state.tab_state.selected_tab;
+        handle_key_event(&make_key_event(KeyCode::Char('h')), &mut state);
+        assert_eq!(state.tab_state.selected_tab, tab_before);
+    }
+
+    #[test]
+    fn test_broadcast_mode_l_does_not_switch_tab() {
+        let mut state = make_state_with_tabs();
+        state.input_mode = InputMode::Broadcast;
+        let tab_before = state.tab_state.selected_tab;
+        handle_key_event(&make_key_event(KeyCode::Char('l')), &mut state);
+        assert_eq!(state.tab_state.selected_tab, tab_before);
+    }
+
+    #[test]
+    fn test_title_mode_h_does_not_switch_tab() {
+        let mut state = make_state_with_tabs();
+        state.input_mode = InputMode::Title;
+        let tab_before = state.tab_state.selected_tab;
+        handle_key_event(&make_key_event(KeyCode::Char('h')), &mut state);
+        assert_eq!(state.tab_state.selected_tab, tab_before);
+    }
+
+    #[test]
+    fn test_right_arrow_moves_tab_in_normal_mode() {
+        let mut state = make_state_with_tabs();
+        handle_key_event(&make_key_event(KeyCode::Right), &mut state);
+        assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::Project("aegis".to_string()));
+    }
+
+    #[test]
+    fn test_left_arrow_moves_tab_in_normal_mode() {
+        let mut state = make_state_with_tabs();
+        handle_key_event(&make_key_event(KeyCode::Left), &mut state);
+        // wraps to last
+        assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::Project("crmux".to_string()));
     }
 }

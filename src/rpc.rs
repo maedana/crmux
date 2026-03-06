@@ -72,6 +72,7 @@ pub fn decode_request(data: &[u8]) -> io::Result<(u32, String, Value)> {
         ));
     }
 
+    // msgpack-rpc msgid is a small sequential counter; u32 is sufficient.
     #[allow(clippy::cast_possible_truncation)]
     let msgid = rmp::decode::read_int::<u64, _>(&mut cursor)
         .map_err(|e: rmp::decode::NumValueReadError| {
@@ -85,6 +86,7 @@ pub fn decode_request(data: &[u8]) -> io::Result<(u32, String, Value)> {
         })?
         .to_string();
 
+    // Cursor position within a single RPC message; always fits in usize.
     #[allow(clippy::cast_possible_truncation)]
     let remaining = &data[cursor.position() as usize..];
     let params: Value = rmp_serde::from_slice(remaining)
@@ -132,6 +134,7 @@ pub fn decode_response(data: &[u8]) -> io::Result<(u32, Value)> {
         ));
     }
 
+    // msgpack-rpc msgid is a small sequential counter; u32 is sufficient.
     #[allow(clippy::cast_possible_truncation)]
     let msgid = rmp::decode::read_int::<u64, _>(&mut cursor)
         .map_err(|e: rmp::decode::NumValueReadError| {
@@ -144,6 +147,7 @@ pub fn decode_response(data: &[u8]) -> io::Result<(u32, Value)> {
             io::Error::new(io::ErrorKind::InvalidData, e.to_string())
         })?;
 
+    // Cursor position within a single RPC message; always fits in usize.
     #[allow(clippy::cast_possible_truncation)]
     let remaining = &data[cursor.position() as usize..];
     let result: Value = rmp_serde::from_slice(remaining)
@@ -161,6 +165,7 @@ pub fn message_type(data: &[u8]) -> io::Result<u8> {
             io::Error::new(io::ErrorKind::InvalidData, e.to_string())
         })?;
 
+    // msgpack-rpc type field is 0, 1, or 2; fits in u8.
     #[allow(clippy::cast_possible_truncation)]
     let msg_type = rmp::decode::read_int::<u64, _>(&mut cursor)
         .map_err(|e: rmp::decode::NumValueReadError| {
@@ -203,6 +208,7 @@ pub fn decode_notification(data: &[u8]) -> io::Result<RpcMessage> {
         })?
         .to_string();
 
+    // Cursor position within a single RPC message; always fits in usize.
     #[allow(clippy::cast_possible_truncation)]
     let remaining = &data[cursor.position() as usize..];
     let params: Value = rmp_serde::from_slice(remaining)

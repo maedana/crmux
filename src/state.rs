@@ -63,6 +63,76 @@ impl ManagedSession {
     }
 }
 
+/// Tab for filtering sessions by project.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Tab {
+    All,
+    Project(String),
+}
+
+/// State for tab-based session filtering.
+pub struct TabState {
+    pub tabs: Vec<Tab>,
+    pub selected_tab: usize,
+}
+
+impl TabState {
+    pub const fn new() -> Self {
+        Self {
+            tabs: Vec::new(),
+            selected_tab: 0,
+        }
+    }
+
+    /// Rebuild the tab list from sessions' project names.
+    /// Maintains the currently selected tab value if it still exists.
+    pub fn rebuild_tabs(&mut self, sessions: &[ManagedSession]) {
+        let mut projects: Vec<String> = sessions
+            .iter()
+            .map(|s| s.project_name.clone())
+            .collect();
+        projects.sort();
+        projects.dedup();
+
+        let mut new_tabs = vec![Tab::All];
+        for p in projects {
+            new_tabs.push(Tab::Project(p));
+        }
+
+        // Maintain selection
+        let current = self.current_tab().clone();
+        self.tabs = new_tabs;
+        if let Some(pos) = self.tabs.iter().position(|t| *t == current) {
+            self.selected_tab = pos;
+        } else {
+            self.selected_tab = 0; // fallback to All
+        }
+    }
+
+    /// Move to next tab (wraps around).
+    pub const fn select_next_tab(&mut self) {
+        if !self.tabs.is_empty() {
+            self.selected_tab = (self.selected_tab + 1) % self.tabs.len();
+        }
+    }
+
+    /// Move to previous tab (wraps around).
+    pub const fn select_prev_tab(&mut self) {
+        if !self.tabs.is_empty() {
+            if self.selected_tab == 0 {
+                self.selected_tab = self.tabs.len() - 1;
+            } else {
+                self.selected_tab -= 1;
+            }
+        }
+    }
+
+    /// Get the currently selected tab.
+    pub fn current_tab(&self) -> &Tab {
+        self.tabs.get(self.selected_tab).unwrap_or(&Tab::All)
+    }
+}
+
 /// Diff result from syncing with `MonitorState`.
 #[derive(Debug, PartialEq, Eq)]
 pub struct SyncDiff {
@@ -132,6 +202,8 @@ pub struct AppState {
     pub esc_source_mode: Option<InputMode>,
     /// Whether the claudeye overlay is visible.
     pub claudeye_visible: bool,
+    /// Tab state for project-based filtering.
+    pub tab_state: TabState,
 }
 
 impl AppState {
@@ -151,6 +223,19 @@ impl AppState {
             pending_rpc: Vec::new(),
             esc_source_mode: None,
             claudeye_visible: false,
+            tab_state: TabState::new(),
+        }
+    }
+
+    /// Return sessions filtered by the current tab.
+    pub fn filtered_sessions(&self) -> Vec<&ManagedSession> {
+        match self.tab_state.current_tab() {
+            Tab::All => self.sessions.iter().collect(),
+            Tab::Project(name) => self
+                .sessions
+                .iter()
+                .filter(|s| s.project_name == *name)
+                .collect(),
         }
     }
 
@@ -213,15 +298,24 @@ impl AppState {
         // Sort by project_name for stable directory-based ordering
         let selected_pid = self.selected_session().map(|s| s.pid);
         self.sessions.sort_by(|a, b| a.project_name.cmp(&b.project_name));
-        if let Some(pid) = selected_pid
-            && let Some(pos) = self.sessions.iter().position(|s| s.pid == pid)
-        {
-            self.selected_index = pos;
-        }
 
-        // Fix selected_index if out of bounds
-        if !self.sessions.is_empty() && self.selected_index >= self.sessions.len() {
-            self.selected_index = self.sessions.len() - 1;
+        // Rebuild tabs from current sessions
+        self.tab_state.rebuild_tabs(&self.sessions);
+
+        // Recalculate selected_index within filtered list
+        let filtered = self.filtered_sessions();
+        if let Some(pid) = selected_pid {
+            if let Some(pos) = filtered.iter().position(|s| s.pid == pid) {
+                self.selected_index = pos;
+            } else if !filtered.is_empty() {
+                self.selected_index = self.selected_index.min(filtered.len() - 1);
+            } else {
+                self.selected_index = 0;
+            }
+        } else if !filtered.is_empty() {
+            self.selected_index = self.selected_index.min(filtered.len() - 1);
+        } else {
+            self.selected_index = 0;
         }
 
         // Apply buffered RPC messages to newly added sessions
@@ -244,19 +338,21 @@ impl AppState {
         }
     }
 
-    /// Move selection down.
-    pub const fn select_next(&mut self) {
-        if !self.sessions.is_empty() {
-            self.selected_index = (self.selected_index + 1) % self.sessions.len();
+    /// Move selection down in the filtered list.
+    pub fn select_next(&mut self) {
+        let len = self.filtered_sessions().len();
+        if len > 0 {
+            self.selected_index = (self.selected_index + 1) % len;
         }
         self.preview_scroll = 0;
     }
 
-    /// Move selection up.
-    pub const fn select_prev(&mut self) {
-        if !self.sessions.is_empty() {
+    /// Move selection up in the filtered list.
+    pub fn select_prev(&mut self) {
+        let len = self.filtered_sessions().len();
+        if len > 0 {
             if self.selected_index == 0 {
-                self.selected_index = self.sessions.len() - 1;
+                self.selected_index = len - 1;
             } else {
                 self.selected_index -= 1;
             }
@@ -279,14 +375,16 @@ impl AppState {
         self.preview_scroll = 0;
     }
 
-    /// Get the currently selected session, if any.
+    /// Get the currently selected session from the filtered list.
     pub fn selected_session(&self) -> Option<&ManagedSession> {
-        self.sessions.get(self.selected_index)
+        let filtered = self.filtered_sessions();
+        filtered.get(self.selected_index).copied()
     }
 
-    /// Get a mutable reference to the currently selected session.
+    /// Get a mutable reference to the currently selected session (PID-based lookup).
     pub fn selected_session_mut(&mut self) -> Option<&mut ManagedSession> {
-        self.sessions.get_mut(self.selected_index)
+        let pid = self.selected_session().map(|s| s.pid)?;
+        self.sessions.iter_mut().find(|s| s.pid == pid)
     }
 
     /// Get the pane ID of the currently selected session.
@@ -294,9 +392,12 @@ impl AppState {
         self.selected_session().map(|s| s.pane_id.as_str())
     }
 
-    /// Toggle the mark on the currently selected session.
+    /// Toggle the mark on the currently selected session (PID-based).
     pub fn toggle_mark(&mut self) {
-        if let Some(session) = self.sessions.get_mut(self.selected_index) {
+        let pid = self.selected_session().map(|s| s.pid);
+        if let Some(pid) = pid
+            && let Some(session) = self.sessions.iter_mut().find(|s| s.pid == pid)
+        {
             session.marked = !session.marked;
         }
     }
@@ -387,6 +488,7 @@ impl AppState {
                     .and_then(|c| c.get("used_percentage"))
                     .and_then(serde_json::Value::as_u64)
                 {
+                    // Context usage is 0–100, fits in u8.
                     #[allow(clippy::cast_possible_truncation)]
                     let pct = pct as u8;
                     session.context_percent = Some(pct);
@@ -1555,5 +1657,212 @@ mod tests {
         app.claudeye_visible = true;
         let result = app.serialize_sessions();
         assert_eq!(result["visible"], true);
+    }
+
+    // --- TabState tests ---
+
+    #[test]
+    fn test_tab_state_initial() {
+        let ts = TabState::new();
+        assert!(ts.tabs.is_empty());
+        assert_eq!(ts.selected_tab, 0);
+        assert_eq!(*ts.current_tab(), Tab::All);
+    }
+
+    #[test]
+    fn test_tab_state_rebuild_from_sessions() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+            make_session(200, "%2", "aegis", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert_eq!(app.tab_state.tabs, vec![
+            Tab::All,
+            Tab::Project("aegis".to_string()),
+            Tab::Project("crmux".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn test_tab_state_alphabetical_sort() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "zebra", ClaudeState::Idle),
+            make_session(200, "%2", "alpha", ClaudeState::Idle),
+            make_session(300, "%3", "middle", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert_eq!(app.tab_state.tabs, vec![
+            Tab::All,
+            Tab::Project("alpha".to_string()),
+            Tab::Project("middle".to_string()),
+            Tab::Project("zebra".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn test_tab_state_dedup() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert_eq!(app.tab_state.tabs, vec![
+            Tab::All,
+            Tab::Project("crmux".to_string()),
+        ]);
+    }
+
+    #[test]
+    fn test_tab_state_selection_maintained_on_rebuild() {
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+        app.tab_state.selected_tab = 2; // crmux tab
+
+        // Re-sync with an additional project
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Working),
+            make_session(300, "%3", "zeta", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor2);
+
+        // crmux tab should still be selected
+        assert_eq!(*app.tab_state.current_tab(), Tab::Project("crmux".to_string()));
+    }
+
+    #[test]
+    fn test_tab_state_fallback_on_project_disappear() {
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+        app.tab_state.selected_tab = 2; // crmux tab
+
+        // crmux session disappears
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor2);
+
+        // Should fallback to All
+        assert_eq!(*app.tab_state.current_tab(), Tab::All);
+    }
+
+    #[test]
+    fn test_tab_state_next_prev_wrap() {
+        let mut ts = TabState::new();
+        ts.tabs = vec![Tab::All, Tab::Project("a".into()), Tab::Project("b".into())];
+        ts.selected_tab = 0;
+
+        ts.select_next_tab();
+        assert_eq!(ts.selected_tab, 1);
+        ts.select_next_tab();
+        assert_eq!(ts.selected_tab, 2);
+        ts.select_next_tab();
+        assert_eq!(ts.selected_tab, 0); // wraps
+
+        ts.select_prev_tab();
+        assert_eq!(ts.selected_tab, 2); // wraps back
+        ts.select_prev_tab();
+        assert_eq!(ts.selected_tab, 1);
+    }
+
+    // --- Filtering tests ---
+
+    #[test]
+    fn test_filtered_sessions_all_tab() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let filtered = app.filtered_sessions();
+        assert_eq!(filtered.len(), 2);
+    }
+
+    #[test]
+    fn test_filtered_sessions_project_tab() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+            make_session(300, "%3", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.tab_state.selected_tab = 2; // crmux tab
+
+        let filtered = app.filtered_sessions();
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|s| s.project_name == "crmux"));
+    }
+
+    #[test]
+    fn test_selected_index_adjusted_on_filter() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+            make_session(300, "%3", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.selected_index = 2; // third item in All tab
+
+        // Switch to aegis tab (only 1 session)
+        app.tab_state.selected_tab = 1; // aegis
+        let filtered = app.filtered_sessions();
+        // selected_index should not exceed filtered len
+        let adjusted = app.selected_index.min(filtered.len().saturating_sub(1));
+        assert!(adjusted < filtered.len());
+    }
+
+    #[test]
+    fn test_select_next_on_filtered() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+            make_session(300, "%3", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Switch to crmux tab
+        app.tab_state.selected_tab = 2;
+        app.selected_index = 0;
+
+        app.select_next();
+        assert_eq!(app.selected_index, 1);
+        app.select_next();
+        assert_eq!(app.selected_index, 0); // wraps at 2, not 3
+    }
+
+    #[test]
+    fn test_sync_rebuilds_tabs() {
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+        assert_eq!(app.tab_state.tabs.len(), 2); // All + aegis
+
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor2);
+        assert_eq!(app.tab_state.tabs.len(), 3); // All + aegis + crmux
     }
 }

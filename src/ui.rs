@@ -8,7 +8,7 @@ use ratatui::{
 use std::time::{Instant, SystemTime};
 use tmux_claude_state::claude_state::ClaudeState;
 
-use crate::state::{InputMode, ManagedSession, PreviewEntry};
+use crate::state::{InputMode, ManagedSession, PreviewEntry, Tab, TabState};
 
 const STALE_MIN_SECS: u64 = 5;
 const STALE_MAX_SECS: u64 = 15;
@@ -84,6 +84,7 @@ fn pulse_factor() -> f64 {
 fn pulse_bg_color(base: Color) -> Color {
     let intensity = pulse_factor() * 0.25; // 0.0 ~ 0.25
     let (r, g, b) = color_to_rgb(base);
+    // intensity is 0.0..=0.25, so result fits in u8 and is non-negative.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Color::Rgb(
         (f64::from(r) * intensity) as u8,
@@ -133,8 +134,8 @@ fn truncate_title(s: &str, max_chars: usize) -> String {
     }
 }
 
-/// Format a preview pane title: "{name} - {title}" if title is present, else "{name} - {pane_id}".
-fn preview_title(name: &str, pane_id: &str, title: &Option<String>) -> String {
+/// Format a preview pane title: "{name} - {title}" if title is present, else "{name} - {`pane_id`}".
+fn preview_title(name: &str, pane_id: &str, title: Option<&String>) -> String {
     match title {
         Some(t) if !t.is_empty() => format!("{name} - {t}"),
         _ => format!("{name} - {pane_id}"),
@@ -142,6 +143,7 @@ fn preview_title(name: &str, pane_id: &str, title: &Option<String>) -> String {
 }
 
 /// Draw the full TUI: session list (left) + preview pane (right).
+// TODO: bundle draw parameters into a struct to reduce argument count.
 #[allow(clippy::too_many_arguments)]
 pub fn draw(
     f: &mut ratatui::Frame,
@@ -153,6 +155,7 @@ pub fn draw(
     show_help: bool,
     help_scroll: u16,
     preview_scroll: u16,
+    tab_state: &TabState,
 ) {
     let size = f.area();
 
@@ -169,7 +172,7 @@ pub fn draw(
         .split(v_chunks[0]);
 
     // Left panel: sessions list
-    draw_left_panel(f, sessions, h_chunks[0], selected_index, input_mode, input_buffer);
+    draw_left_panel(f, sessions, h_chunks[0], selected_index, input_mode, input_buffer, tab_state);
 
     // Right panel: preview (optionally with input bar at bottom)
     let selected_pane_id = sessions
@@ -185,10 +188,10 @@ pub fn draw(
     f.render_widget(instructions, v_chunks[1]);
 
     // Insert/Broadcastモード時にカーソルを選択中プレビューペインの最下部に表示（IMEアンカー）
-    if matches!(input_mode, InputMode::Input | InputMode::Broadcast) {
-        if let Some((cx, cy)) = preview_cursor {
-            f.set_cursor_position((cx, cy));
-        }
+    if matches!(input_mode, InputMode::Input | InputMode::Broadcast)
+        && let Some((cx, cy)) = preview_cursor
+    {
+        f.set_cursor_position((cx, cy));
     }
 
     // Help popup overlay
@@ -205,7 +208,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     )];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title o:Claudeye ?:Help q:Quit"));
+            spans.push(Span::raw(" | h/l:Tab j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title o:Claudeye ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -259,6 +262,8 @@ fn draw_right_panel(
 
 /// Draw one or more preview panes, splitting the area vertically.
 /// Returns the cursor position (x, y) for the selected preview pane's bottom-left (IME anchor).
+// Single/multi-pane rendering is already split into branches; further extraction hurts readability.
+#[allow(clippy::too_many_lines)]
 fn draw_preview_panes(
     f: &mut ratatui::Frame,
     preview_contents: &[PreviewEntry],
@@ -284,13 +289,14 @@ fn draw_preview_panes(
             .as_str()
             .into_text()
             .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
+        // Terminal pane content never exceeds u16::MAX lines.
         #[allow(clippy::cast_possible_truncation)]
         let text_lines = preview_text.lines.len() as u16;
         let inner_height = area.height.saturating_sub(2);
         let max_scroll = text_lines.saturating_sub(inner_height);
         let effective_scroll = preview_scroll.min(max_scroll);
         let scroll_y = max_scroll.saturating_sub(effective_scroll);
-        let mut title = preview_title(&entry.name, &entry.pane_id, &entry.title);
+        let mut title = preview_title(&entry.name, &entry.pane_id, entry.title.as_ref());
         if preview_scroll > 0 {
             title.push_str(" [SCROLL]");
         }
@@ -313,7 +319,7 @@ fn draw_preview_panes(
     let (cols, rows) = compute_grid(n, area.width, MIN_PANE_WIDTH);
     let row_items = grid_row_items(n, cols);
 
-    // Split area into rows
+    // Grid row/col counts are bounded by terminal dimensions, well within u32.
     #[allow(clippy::cast_possible_truncation)]
     let row_constraints: Vec<Constraint> = row_items
         .iter()
@@ -327,7 +333,7 @@ fn draw_preview_panes(
     let mut idx = 0;
     let mut cursor_pos = None;
     for (row_idx, &items_in_row) in row_items.iter().enumerate() {
-        // Split each row into columns
+        // items_in_row is bounded by grid cols, well within u32.
         #[allow(clippy::cast_possible_truncation)]
         let col_constraints: Vec<Constraint> = (0..items_in_row)
             .map(|_| Constraint::Ratio(1, items_in_row as u32))
@@ -357,7 +363,7 @@ fn draw_preview_panes(
                 text_lines.saturating_sub(inner_height)
             };
             let title_prefix = if is_focused { SELECTED_ICON } else { "" };
-            let title = preview_title(&entry.name, &entry.pane_id, &entry.title);
+            let title = preview_title(&entry.name, &entry.pane_id, entry.title.as_ref());
             let preview = Paragraph::new(preview_text)
                 .block(
                     Block::default()
@@ -377,8 +383,117 @@ fn draw_preview_panes(
     cursor_pos
 }
 
+/// Draw the tab bar for project filtering.
+fn draw_tab_bar(f: &mut ratatui::Frame, tab_state: &TabState, area: Rect) {
+    let width = area.width as usize;
+    if width == 0 || tab_state.tabs.is_empty() {
+        return;
+    }
+
+    // Build tab labels with their widths
+    let labels: Vec<String> = tab_state
+        .tabs
+        .iter()
+        .enumerate()
+        .map(|(i, tab)| {
+            let name = match tab {
+                Tab::All => "All".to_string(),
+                Tab::Project(p) => p.clone(),
+            };
+            if i == tab_state.selected_tab {
+                format!("[{name}]")
+            } else {
+                name
+            }
+        })
+        .collect();
+
+    // Calculate total width with separators
+    let total_width: usize = labels.iter().map(|l| l.chars().count()).sum::<usize>()
+        + labels.len().saturating_sub(1); // spaces between tabs
+
+    // Determine visible range with horizontal scroll
+    let mut spans = Vec::new();
+    if total_width <= width {
+        // Everything fits
+        for (i, label) in labels.iter().enumerate() {
+            if i > 0 {
+                spans.push(Span::raw(" "));
+            }
+            let style = if i == tab_state.selected_tab {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            spans.push(Span::styled(label.clone(), style));
+        }
+    } else {
+        // Need horizontal scroll - center on selected tab
+        let mut tab_positions: Vec<(usize, usize)> = Vec::new(); // (start, end) for each tab
+        let mut pos = 0;
+        for (i, label) in labels.iter().enumerate() {
+            if i > 0 {
+                pos += 1; // space separator
+            }
+            let len = label.chars().count();
+            tab_positions.push((pos, pos + len));
+            pos += len;
+        }
+
+        let sel = tab_state.selected_tab;
+        let (sel_start, sel_end) = tab_positions[sel];
+        let sel_mid = usize::midpoint(sel_start, sel_end);
+        let view_start = sel_mid.saturating_sub(width / 2);
+        let view_end = view_start + width;
+
+        let has_left = view_start > 0;
+        let has_right = view_end < total_width;
+
+        let effective_start = if has_left { view_start + 2 } else { view_start };
+        let effective_end = if has_right { view_end - 2 } else { view_end };
+
+        if has_left {
+            spans.push(Span::styled("< ", Style::default().fg(Color::DarkGray)));
+        }
+
+        for (i, label) in labels.iter().enumerate() {
+            let (start, end) = tab_positions[i];
+            // Include separator before this tab
+            if i > 0 {
+                let sep_pos = start - 1;
+                if sep_pos >= effective_start && sep_pos < effective_end {
+                    spans.push(Span::raw(" "));
+                }
+            }
+            if end > effective_start && start < effective_end {
+                let style = if i == tab_state.selected_tab {
+                    Style::default().add_modifier(Modifier::REVERSED)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                // Truncate label if partially visible
+                let label_start = effective_start.saturating_sub(start);
+                let label_end = if end > effective_end { effective_end - start } else { label.chars().count() };
+                if label_start < label_end {
+                    let visible: String = label.chars().skip(label_start).take(label_end - label_start).collect();
+                    spans.push(Span::styled(visible, style));
+                }
+            }
+        }
+
+        if has_right {
+            spans.push(Span::styled(" >", Style::default().fg(Color::DarkGray)));
+        }
+    }
+
+    let line = Line::from(spans);
+    let paragraph = Paragraph::new(line);
+    f.render_widget(paragraph, area);
+}
+
 pub const HELP_TEXT: &str = "\
 Keybindings (Normal mode):
+  h / ← / l / →  Switch project tab
   j / ↓          Move cursor down in session list
   k / ↑          Move cursor up in session list
   Ctrl+u         Scroll preview up (half page)
@@ -446,11 +561,14 @@ fn draw_left_panel(
     selected_index: usize,
     input_mode: InputMode,
     input_buffer: &str,
+    tab_state: &TabState,
 ) {
-    draw_sessions_list(f, sessions, area, selected_index, input_mode, input_buffer);
+    draw_sessions_list(f, sessions, area, selected_index, input_mode, input_buffer, tab_state);
 }
 
 /// Draw the list of Claude sessions.
+// Per-session card rendering with inline title editing makes this long but cohesive.
+#[allow(clippy::too_many_lines)]
 fn draw_sessions_list(
     f: &mut ratatui::Frame,
     sessions: &[ManagedSession],
@@ -458,14 +576,34 @@ fn draw_sessions_list(
     selected_index: usize,
     input_mode: InputMode,
     input_buffer: &str,
+    tab_state: &TabState,
 ) {
+    let block_title = match tab_state.current_tab() {
+        Tab::All => format!("Sessions ({})", sessions.len()),
+        Tab::Project(name) => format!("{name} ({count})", count = sessions.len()),
+    };
     let block = Block::default()
-        .title(format!("Sessions ({})", sessions.len()))
+        .title(block_title)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::White));
 
-    let inner_area = block.inner(area);
+    let full_inner = block.inner(area);
     f.render_widget(block, area);
+
+    // Tab bar (1 line) + session list
+    let has_tabs = tab_state.tabs.len() > 1;
+    let (tab_area, inner_area) = if has_tabs {
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(1), Constraint::Min(0)])
+            .split(full_inner);
+        // Draw tab bar
+        draw_tab_bar(f, tab_state, chunks[0]);
+        (Some(chunks[0]), chunks[1])
+    } else {
+        (None, full_inner)
+    };
+    let _ = tab_area;
 
     if sessions.is_empty() {
         let empty_msg = Paragraph::new("No Claude sessions detected")
@@ -583,7 +721,7 @@ fn draw_sessions_list(
         // Set cursor position for inline title editing
         if is_editing_title {
             let inner = Block::default().borders(Borders::ALL).inner(layout[idx]);
-            // Cursor after mark indicator (2 chars) + buffer text
+            // Cursor position is bounded by terminal width, well within u16.
             #[allow(clippy::cast_possible_truncation)]
             let cursor_x = inner.x + 2 + input_buffer.chars().count().min((inner.width.saturating_sub(2)) as usize) as u16;
             let cursor_y = inner.y;
@@ -726,17 +864,19 @@ mod tests {
 
     #[test]
     fn test_preview_title_with_title() {
-        assert_eq!(preview_title("crmux", "%1", &Some("development".to_string())), "crmux - development");
+        let title = "development".to_string();
+        assert_eq!(preview_title("crmux", "%1", Some(&title)), "crmux - development");
     }
 
     #[test]
     fn test_preview_title_without_title() {
-        assert_eq!(preview_title("crmux", "%1", &None), "crmux - %1");
+        assert_eq!(preview_title("crmux", "%1", None), "crmux - %1");
     }
 
     #[test]
     fn test_preview_title_with_empty_title() {
-        assert_eq!(preview_title("crmux", "%1", &Some("".to_string())), "crmux - %1");
+        let title = String::new();
+        assert_eq!(preview_title("crmux", "%1", Some(&title)), "crmux - %1");
     }
 
     // --- footer_spans tests ---
