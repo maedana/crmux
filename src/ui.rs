@@ -208,7 +208,7 @@ fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
     )];
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | h/l:Tab j/k:Nav C-u/C-d:Scroll gg:Top G:Bottom Space:Multi-preview s:Switch i:Input(selected) I:Input(marked) e:Title o:Claudeye ?:Help q:Quit"));
+            spans.push(Span::raw(" | hjkl:Nav Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit"));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -500,8 +500,8 @@ Keybindings (Normal mode):
   Ctrl+d         Scroll preview down (half page)
   gg             Scroll preview to top
   G              Scroll preview to bottom
-  Space          Mark for preview multiple tmux panes
   s              Switch to tmux pane
+  Space          Mark for preview multiple tmux panes
   i              Enter input mode (send keys to the selected session)
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
@@ -966,14 +966,14 @@ mod tests {
     fn test_footer_normal_mode_contains_broadcast_key() {
         let spans = footer_spans(InputMode::Normal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("I:Input(marked)"), "Normal mode footer should contain 'I:Input(marked)', got: {text}");
+        assert!(text.contains("I:Marked"), "Normal mode footer should contain 'I:Marked', got: {text}");
     }
 
     #[test]
     fn test_footer_normal_mode_contains_scroll_keys() {
         let spans = footer_spans(InputMode::Normal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("C-u/C-d:Scroll"), "Normal mode footer should contain 'C-u/C-d:Scroll', got: {text}");
+        assert!(text.contains("C-u:Up C-d:Down"), "Normal mode footer should contain 'C-u:Up C-d:Down', got: {text}");
     }
 
     #[test]
