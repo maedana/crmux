@@ -456,6 +456,23 @@ impl AppState {
                 // Project-targeted send: find idle session for project
                 if let Some(session) = self.find_idle_session_for_project(project) {
                     let pane_id = session.pane_id.clone();
+                    // Send prefix_commands first (each paste + Enter with 50ms interval)
+                    if let Some(cmds) = msg.params.get("prefix_commands").and_then(|v| v.as_array())
+                    {
+                        for cmd in cmds {
+                            if let Some(cmd_str) = cmd.as_str() {
+                                crate::event_handler::send_paste_to_panes(&[&pane_id], cmd_str);
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                                crate::event_handler::run_tmux(&[
+                                    "send-keys",
+                                    "-t",
+                                    &pane_id,
+                                    "Enter",
+                                ]);
+                                std::thread::sleep(std::time::Duration::from_millis(50));
+                            }
+                        }
+                    }
                     crate::event_handler::send_paste_to_panes(&[&pane_id], text);
                     let no_execute = msg
                         .params
@@ -2031,6 +2048,48 @@ mod tests {
             params: serde_json::json!({ "text": "hello", "project": "crmux" }),
         });
         // Should not panic
+    }
+
+    #[test]
+    fn test_send_text_with_prefix_commands_does_not_panic() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({
+                "text": "hello",
+                "project": "crmux",
+                "prefix_commands": ["/clear", "/plan"]
+            }),
+        });
+        // Should not panic
+    }
+
+    #[test]
+    fn test_send_text_prefix_commands_ignored_without_project() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.selected_index = 0;
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({
+                "text": "hello",
+                "prefix_commands": ["/clear"]
+            }),
+        });
+        // Should not panic — prefix_commands is simply ignored, text sent to selected pane
     }
 
     #[test]
