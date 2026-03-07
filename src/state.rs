@@ -174,6 +174,8 @@ pub struct PreviewEntry {
     pub title: Option<String>,
     /// Captured pane content.
     pub content: String,
+    /// Cursor position (row, col) detected from reverse-video cell in captured content.
+    pub cursor_pos: Option<(u16, u16)>,
 }
 
 /// Input mode for the sidebar.
@@ -839,6 +841,7 @@ mod tests {
             pane_id: "%1".to_string(),
             title: Some("development".to_string()),
             content: "hello".to_string(),
+            cursor_pos: None,
         };
         assert_eq!(entry.name, "crmux");
         assert_eq!(entry.title, Some("development".to_string()));
@@ -851,6 +854,7 @@ mod tests {
             pane_id: "%1".to_string(),
             title: None,
             content: "hello".to_string(),
+            cursor_pos: None,
         };
         assert_eq!(entry.title, None);
     }

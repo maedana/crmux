@@ -57,6 +57,72 @@ fn capture_pane_content(pane_id: &str, scrollback_lines: Option<u16>) -> String 
     strip_osc8_hyperlinks(&raw).trim_end().to_string()
 }
 
+/// Detect cursor position from reverse-video cell in ANSI content.
+///
+/// Claude Code renders its cursor as a reverse-video space (`\x1b[7m \x1b[0m`).
+/// Returns `(row, col)` where col accounts for wide characters.
+fn detect_cursor_position(content: &str) -> Option<(u16, u16)> {
+    for (row, line) in content.split('\n').enumerate() {
+        let mut col: u16 = 0;
+        let mut chars = line.chars().peekable();
+        let mut in_reverse = false;
+
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                // Parse ESC sequence
+                if chars.peek() == Some(&'[') {
+                    chars.next(); // consume '['
+                    let mut params = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c.is_ascii_digit() || c == ';' {
+                            params.push(c);
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    if let Some(&final_byte) = chars.peek() {
+                        chars.next(); // consume final byte
+                        if final_byte == 'm' {
+                            // SGR sequence
+                            if params == "7" {
+                                in_reverse = true;
+                            } else if params == "0" || params == "27" || params.is_empty() {
+                                in_reverse = false;
+                            }
+                        }
+                    }
+                } else if chars.peek() == Some(&']') {
+                    // OSC sequence - skip until ST or BEL
+                    chars.next();
+                    while let Some(c) = chars.next() {
+                        if c == '\x07' {
+                            break;
+                        }
+                        if c == '\x1b' && chars.peek() == Some(&'\\') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+
+            if in_reverse {
+                // Row count is bounded by terminal rows.
+                #[allow(clippy::cast_possible_truncation)]
+                return Some((row as u16, col));
+            }
+
+            let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            // Column position in a terminal row fits in u16.
+            #[allow(clippy::cast_possible_truncation)]
+            { col += width as u16; }
+        }
+    }
+    None
+}
+
 /// Capture a tmux pane with scrollback history (ANSI escapes preserved).
 fn capture_pane_with_scrollback(pane_id: &str, scrollback_lines: u16) -> String {
     let start_line = format!("-{scrollback_lines}");
@@ -254,11 +320,13 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     } else {
                         capture_pane_content(&session.pane_id, None)
                     };
+                    let cursor_pos = detect_cursor_position(&content);
                     state.preview_contents = vec![PreviewEntry {
                         name: session.project_name.clone(),
                         pane_id: session.pane_id.clone(),
                         title: session.display_title().map(String::from),
                         content,
+                        cursor_pos,
                     }];
                 } else {
                     state.preview_contents.clear();
@@ -278,11 +346,13 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         } else {
                             capture_pane_content(&s.pane_id, None)
                         };
+                        let cursor_pos = detect_cursor_position(&content);
                         PreviewEntry {
                             name: s.project_name.clone(),
                             pane_id: s.pane_id.clone(),
                             title: s.display_title().map(String::from),
                             content,
+                            cursor_pos,
                         }
                     })
                     .collect();
@@ -406,6 +476,39 @@ mod tests {
         // Some terminals use BEL (\x07) instead of ST (\x1b\\)
         let input = "\x1b]8;;file:///path\x07link text\x1b]8;;\x07";
         assert_eq!(strip_osc8_hyperlinks(input), "link text");
+    }
+
+    #[test]
+    fn test_detect_cursor_basic() {
+        // reverse-video space at col 2 on row 0
+        let input = "ab\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_multiline() {
+        let input = "line1\n\x1b[39m❯  \x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((1, 3)));
+    }
+
+    #[test]
+    fn test_detect_cursor_none() {
+        let input = "no cursor here\njust text";
+        assert_eq!(detect_cursor_position(input), None);
+    }
+
+    #[test]
+    fn test_detect_cursor_with_wide_chars() {
+        // "日本" takes 4 columns, then reverse space at col 4
+        let input = "日本\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 4)));
+    }
+
+    #[test]
+    fn test_detect_cursor_with_ansi_before() {
+        // color codes don't add to column count
+        let input = "\x1b[31mab\x1b[0m\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
     }
 
     #[test]
