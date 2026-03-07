@@ -472,17 +472,20 @@ impl AppState {
                 .get("no_execute")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
-            // Send text + Enter atomically via tmux ";" chaining.
-            if no_execute {
-                crate::event_handler::run_tmux(&[
-                    "send-keys", "-t", &pane_id, "-l", text,
-                ]);
-            } else {
-                crate::event_handler::run_tmux(&[
-                    "send-keys", "-t", &pane_id, "-l", text,
-                    ";",
-                    "send-keys", "-t", &pane_id, "Enter",
-                ]);
+            // Use paste-buffer instead of send-keys -l.
+            // Claude Code has a bug where send-keys stops working after
+            // interrupting multi-line input with Esc,Esc.
+            // See: https://github.com/anthropics/claude-code/issues/31739
+            crate::event_handler::run_tmux(&[
+                "set-buffer", "-b", "crmux-rpc", "--", text,
+            ]);
+            crate::event_handler::run_tmux(&[
+                "paste-buffer", "-b", "crmux-rpc", "-t", &pane_id, "-p",
+            ]);
+            crate::event_handler::run_tmux(&["delete-buffer", "-b", "crmux-rpc"]);
+            if !no_execute {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                crate::event_handler::run_tmux(&["send-keys", "-t", &pane_id, "Enter"]);
             }
             return;
         }
