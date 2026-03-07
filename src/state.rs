@@ -467,31 +467,22 @@ impl AppState {
             let Some(pane_id) = target_pane else {
                 return;
             };
-            // 200ms interval between paste and Enter.
-            // tmux send-keys returns immediately, but the target app (Claude Code)
-            // needs time to process the pasted text before accepting Enter.
-            // 50ms was too fast; 200ms matches typical human keystroke interval.
-            if let Some(cmds) = msg.params.get("prefix_commands").and_then(|v| v.as_array()) {
-                for cmd in cmds {
-                    if let Some(cmd_str) = cmd.as_str() {
-                        crate::event_handler::send_paste_to_panes(&[&pane_id], cmd_str);
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                        crate::event_handler::run_tmux(&[
-                            "send-keys", "-t", &pane_id, "Enter",
-                        ]);
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                    }
-                }
-            }
-            crate::event_handler::send_paste_to_panes(&[&pane_id], text);
             let no_execute = msg
                 .params
                 .get("no_execute")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
-            if !no_execute {
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                crate::event_handler::run_tmux(&["send-keys", "-t", &pane_id, "Enter"]);
+            // Send text + Enter atomically via tmux ";" chaining.
+            if no_execute {
+                crate::event_handler::run_tmux(&[
+                    "send-keys", "-t", &pane_id, "-l", text,
+                ]);
+            } else {
+                crate::event_handler::run_tmux(&[
+                    "send-keys", "-t", &pane_id, "-l", text,
+                    ";",
+                    "send-keys", "-t", &pane_id, "Enter",
+                ]);
             }
             return;
         }
@@ -2048,48 +2039,6 @@ mod tests {
             params: serde_json::json!({ "text": "hello", "project": "crmux" }),
         });
         // Should not panic
-    }
-
-    #[test]
-    fn test_send_text_with_prefix_commands_does_not_panic() {
-        use crate::rpc::RpcMessage;
-
-        let mut app = AppState::new(None);
-        let monitor = make_monitor(vec![
-            make_session(100, "%1", "crmux", ClaudeState::Idle),
-        ]);
-        app.sync_with_monitor(&monitor);
-
-        app.handle_rpc_message(&RpcMessage {
-            method: "send_text".to_string(),
-            params: serde_json::json!({
-                "text": "hello",
-                "project": "crmux",
-                "prefix_commands": ["/clear", "/plan"]
-            }),
-        });
-        // Should not panic
-    }
-
-    #[test]
-    fn test_send_text_prefix_commands_works_without_project() {
-        use crate::rpc::RpcMessage;
-
-        let mut app = AppState::new(None);
-        let monitor = make_monitor(vec![
-            make_session(100, "%1", "crmux", ClaudeState::Idle),
-        ]);
-        app.sync_with_monitor(&monitor);
-        app.selected_index = 0;
-
-        app.handle_rpc_message(&RpcMessage {
-            method: "send_text".to_string(),
-            params: serde_json::json!({
-                "text": "hello",
-                "prefix_commands": ["/clear"]
-            }),
-        });
-        // Should not panic — prefix_commands works on selected pane too
     }
 
     #[test]

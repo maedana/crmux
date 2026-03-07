@@ -147,16 +147,12 @@ echo '{"text": "implement feature X", "project": "crmux"}' | crmux notify send-t
 
 # Paste text without pressing Enter
 echo '{"text": "draft prompt", "project": "crmux", "no_execute": true}' | crmux notify send-text
-
-# Run prefix commands (/clear, /plan) before sending text
-echo '{"text": "task description", "project": "crmux", "prefix_commands": ["/clear", "/plan"]}' | crmux notify send-text
 ```
 
 **Parameters:**
 - `text` (required): Text to send
 - `project` (optional): Target an idle session whose project name starts with this value
 - `no_execute` (optional): If `true`, paste text without pressing Enter
-- `prefix_commands` (optional): Array of commands to execute before the main text (each sent with Enter)
 
 ## Roadmap
 
