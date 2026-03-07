@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 use std::time::{Instant, SystemTime};
-use tmux_claude_state::claude_state::ClaudeState;
+use tmux_claude_state::claude_state::{ClaudeState, PermissionMode};
 
 use crate::state::{InputMode, ManagedSession, PreviewEntry, Tab, TabState};
 
@@ -111,6 +111,15 @@ pub const fn state_color(state: &ClaudeState) -> Color {
         ClaudeState::Working => Color::Blue,
         ClaudeState::WaitingForApproval => Color::LightRed,
         ClaudeState::Idle => Color::White,
+    }
+}
+
+/// Return the icon string for a `PermissionMode`, matching Claude Code's status bar.
+pub fn permission_mode_icon(mode: &PermissionMode) -> &'static str {
+    match mode {
+        PermissionMode::PlanMode => "⏸ ",
+        PermissionMode::EditAutomatically => "⏵⏵",
+        PermissionMode::AskBeforeEdits => "",
     }
 }
 
@@ -671,6 +680,14 @@ fn draw_sessions_list(
             ));
             status_spans.push(Span::raw(" "));
         }
+        let mode_icon = permission_mode_icon(&session.permission_mode);
+        if !mode_icon.is_empty() {
+            status_spans.push(Span::styled(
+                mode_icon,
+                Style::default().fg(Color::Cyan),
+            ));
+            status_spans.push(Span::raw(" "));
+        }
         status_spans.push(Span::styled(label, Style::default().fg(text_color)));
         status_spans.push(Span::raw(" "));
         status_spans.push(Span::styled(elapsed, Style::default().fg(text_color)));
@@ -1122,4 +1139,20 @@ mod tests {
         assert!(text.contains("Esc:Back"), "Scroll mode footer should contain 'Esc:Back', got: {text}");
     }
 
+    // --- permission_mode_icon tests ---
+
+    #[test]
+    fn test_permission_mode_icon_plan() {
+        assert_eq!(permission_mode_icon(&PermissionMode::PlanMode), "⏸ ");
+    }
+
+    #[test]
+    fn test_permission_mode_icon_auto_edit() {
+        assert_eq!(permission_mode_icon(&PermissionMode::EditAutomatically), "⏵⏵");
+    }
+
+    #[test]
+    fn test_permission_mode_icon_ask() {
+        assert_eq!(permission_mode_icon(&PermissionMode::AskBeforeEdits), "");
+    }
 }

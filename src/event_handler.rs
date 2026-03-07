@@ -515,6 +515,7 @@ mod tests {
             cwd: "/home/user/test-project".to_string(),
             git_branch: None,
             auto_title: None,
+            permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
         });
         state
     }
@@ -902,6 +903,7 @@ mod tests {
             cwd: "/home/user/project-a".to_string(),
             git_branch: None,
             auto_title: None,
+            permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
         });
         state.sessions.push(ManagedSession {
             pid: 200,
@@ -917,6 +919,7 @@ mod tests {
             cwd: "/home/user/project-b".to_string(),
             git_branch: None,
             auto_title: None,
+            permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
         });
         state.sessions.push(ManagedSession {
             pid: 300,
@@ -932,6 +935,7 @@ mod tests {
             cwd: "/home/user/project-c".to_string(),
             git_branch: None,
             auto_title: None,
+            permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
         });
         state
     }
@@ -1454,6 +1458,7 @@ mod tests {
                 cwd: format!("/home/user/{project}"),
                 git_branch: None,
                 auto_title: None,
+                permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
             });
         }
         state.tab_state.rebuild_tabs(&state.sessions);

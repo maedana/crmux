@@ -1557,9 +1557,9 @@ checksum = "7694e1cfe791f8d31026952abf09c69ca6f6fa4e1a1229e18988f06a04a12dca"
 
 [[package]]
 name = "tmux-claude-state"
-version = "0.1.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3b89dc333d50521140e32ba8978dac0c03fc71a56f8d75980cfe0766e9888c4f"
+checksum = "d662b2972f629143cd432c05538e2a11fa3a74d2597671cb038a5588c76fa0c8"
 dependencies = [
  "regex",
 ]

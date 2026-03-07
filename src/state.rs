@@ -1,6 +1,6 @@
 use std::process::{Command, Stdio};
 use std::time::Instant;
-use tmux_claude_state::claude_state::ClaudeState;
+use tmux_claude_state::claude_state::{ClaudeState, PermissionMode};
 use tmux_claude_state::monitor::{ClaudeSession, MonitorState};
 
 /// Run `git -C <cwd> branch --show-current` and return the branch name.
@@ -52,6 +52,8 @@ pub struct ManagedSession {
     pub git_branch: Option<String>,
     /// Automatically resolved title from Claude Code session metadata.
     pub auto_title: Option<String>,
+    /// Current permission mode (Ask / Auto Edit / Plan).
+    pub permission_mode: PermissionMode,
 }
 
 impl ManagedSession {
@@ -270,6 +272,7 @@ impl AppState {
             {
                 // Update pane_id in case it changed after join-pane
                 existing.pane_id.clone_from(&session.pane.id);
+                existing.permission_mode = session.permission_mode.clone();
                 if existing.state != session.state {
                     state_changed.push(existing.pid);
                     existing.state = session.state.clone();
@@ -291,6 +294,7 @@ impl AppState {
                     cwd: session.pane.cwd.clone(),
                     git_branch: None,
                     auto_title: None,
+                    permission_mode: session.permission_mode.clone(),
                 });
             }
         }
@@ -597,6 +601,7 @@ mod tests {
                 project_name: project.to_string(),
             },
             state,
+            permission_mode: PermissionMode::AskBeforeEdits,
             state_changed_at: Instant::now(),
         }
     }
