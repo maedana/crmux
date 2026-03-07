@@ -18,8 +18,21 @@ struct Cli {
 #[derive(clap::Subcommand)]
 enum Commands {
     /// Send a notification to running crmux instance
+    #[command(
+        verbatim_doc_comment,
+        long_about = "\
+Send a notification to running crmux instance
+
+Reads JSON params from stdin and sends them as an RPC message.
+
+Events:
+  send-text  Send text to a session pane
+             Params: {\"text\": \"...\", \"project\": \"...\", \"no_execute\": true}
+
+Example: echo '{\"text\": \"hello\"}' | crmux notify send-text"
+    )]
     Notify {
-        /// Event type (e.g., session-start)
+        /// Event type (e.g., send-text)
         event: String,
     },
 }
