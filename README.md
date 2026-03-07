@@ -136,11 +136,27 @@ fi
 
 ## Sending Text from External Tools
 
-External tools can send text to the currently selected pane via the `send_text` RPC method:
+External tools can send text to Claude Code sessions via the `send_text` RPC method:
 
 ```sh
+# Send to the currently selected pane
 echo '{"text": "hello"}' | crmux notify send-text
+
+# Send to an idle session by project name (prefix match)
+echo '{"text": "implement feature X", "project": "crmux"}' | crmux notify send-text
+
+# Paste text without pressing Enter
+echo '{"text": "draft prompt", "project": "crmux", "no_execute": true}' | crmux notify send-text
+
+# Run prefix commands (/clear, /plan) before sending text
+echo '{"text": "task description", "project": "crmux", "prefix_commands": ["/clear", "/plan"]}' | crmux notify send-text
 ```
+
+**Parameters:**
+- `text` (required): Text to send
+- `project` (optional): Target an idle session whose project name starts with this value
+- `no_execute` (optional): If `true`, paste text without pressing Enter (project mode only)
+- `prefix_commands` (optional): Array of commands to execute before the main text (project mode only, each sent with Enter)
 
 ## Roadmap
 
