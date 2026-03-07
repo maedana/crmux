@@ -23,6 +23,23 @@ fn resolve_git_branch(cwd: &str) -> Option<String> {
     }
 }
 
+/// Calculate the number of Shift+Tab presses needed to switch from `current` to `target_mode`.
+/// Mode cycle: Ask(0) → Auto Edit(1) → Plan(2) → Ask(0)...
+/// Returns 0 if target_mode is unknown or already matches current.
+pub fn permission_mode_switch_count(current: &PermissionMode, target_mode: &str) -> usize {
+    let current_idx = match current {
+        PermissionMode::AskBeforeEdits => 0,
+        PermissionMode::EditAutomatically => 1,
+        PermissionMode::PlanMode => 2,
+    };
+    let target_idx = match target_mode {
+        "accept-edits" => 1,
+        "plan-mode" => 2,
+        _ => return 0,
+    };
+    (target_idx + 3 - current_idx) % 3
+}
+
 /// A Claude Code session managed by crmux, tracked by PID.
 #[derive(Debug, Clone)]
 pub struct ManagedSession {
@@ -442,6 +459,11 @@ impl AppState {
             .min_by_key(|s| s.state_changed_at)
     }
 
+    /// Find a session by pane_id.
+    pub fn find_session_by_pane_id(&self, pane_id: &str) -> Option<&ManagedSession> {
+        self.sessions.iter().find(|s| s.pane_id == pane_id)
+    }
+
     /// Refresh git branch names for all sessions by running `git branch --show-current`.
     pub fn refresh_git_branches(&mut self) {
         for session in &mut self.sessions {
@@ -476,6 +498,23 @@ impl AppState {
                 .get("no_execute")
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
+            // Switch permission mode if requested
+            if let Some(target_mode) = msg.params.get("mode").and_then(|v| v.as_str()) {
+                if let Some(session) = self.find_session_by_pane_id(&pane_id) {
+                    let count =
+                        permission_mode_switch_count(&session.permission_mode, target_mode);
+                    for _ in 0..count {
+                        crate::event_handler::run_tmux(&[
+                            "send-keys", "-t", &pane_id, "BTab",
+                        ]);
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                    }
+                    if count > 0 {
+                        // Wait for mode switch to settle
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                    }
+                }
+            }
             // Use paste-buffer instead of send-keys -l.
             // Claude Code has a bug where send-keys stops working after
             // interrupting multi-line input with Esc,Esc.
@@ -1926,6 +1965,44 @@ mod tests {
         assert_eq!(app.selected_index, 1);
         app.select_next();
         assert_eq!(app.selected_index, 0); // wraps at 2, not 3
+    }
+
+    // --- permission_mode_switch_count ---
+
+    #[test]
+    fn test_mode_switch_ask_to_plan() {
+        let count = permission_mode_switch_count(&PermissionMode::AskBeforeEdits, "plan-mode");
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_mode_switch_ask_to_auto_edit() {
+        let count = permission_mode_switch_count(&PermissionMode::AskBeforeEdits, "accept-edits");
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn test_mode_switch_plan_to_ask() {
+        let count = permission_mode_switch_count(&PermissionMode::PlanMode, "accept-edits");
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn test_mode_switch_same_mode_returns_zero() {
+        let count = permission_mode_switch_count(&PermissionMode::PlanMode, "plan-mode");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_mode_switch_unknown_target_returns_zero() {
+        let count = permission_mode_switch_count(&PermissionMode::AskBeforeEdits, "unknown");
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn test_mode_switch_auto_edit_to_plan() {
+        let count = permission_mode_switch_count(&PermissionMode::EditAutomatically, "plan-mode");
+        assert_eq!(count, 1);
     }
 
     // --- send_text RPC ---

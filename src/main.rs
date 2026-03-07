@@ -27,7 +27,7 @@ Reads JSON params from stdin and sends them as an RPC message.
 
 Events:
   send-text  Send text to a session pane
-             Params: {\"text\": \"...\", \"project\": \"...\", \"no_execute\": true}
+             Params: {\"text\": \"...\", \"project\": \"...\", \"no_execute\": true, \"mode\": \"plan-mode|accept-edits\"}
 
 Example: echo '{\"text\": \"hello\"}' | crmux notify send-text"
     )]

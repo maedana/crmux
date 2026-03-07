@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- `send_text` RPC: `mode` parameter to switch permission mode (`plan-mode` or `accept-edits`) before sending text
 - `send_text` RPC: `project` parameter for targeting idle sessions by project name
 - `send_text` RPC: `no_execute` parameter to paste text without pressing Enter
 - Display permission mode icon (Plan: ⏸, Auto Edit: ⏵⏵) in session list
