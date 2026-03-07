@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.10.0
+## Unreleased
 
 ### Added
 - `send_text` RPC: `project` parameter for targeting idle sessions by project name
