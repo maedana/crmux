@@ -239,7 +239,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             return serde_json::Value::Null;
         };
         match method {
-            "get_sessions" => state.serialize_sessions(),
+            "get_sessions" => state.serialize_sessions(params),
             "get_plans" => state.serialize_plans(params),
             _ => serde_json::Value::Null,
         }

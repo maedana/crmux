@@ -646,10 +646,15 @@ impl AppState {
     }
 
     /// Serialize all sessions and visibility state as a JSON value.
-    pub fn serialize_sessions(&self) -> serde_json::Value {
+    /// If `params` contains a `"project"` key, filter sessions by project name.
+    pub fn serialize_sessions(&self, params: &serde_json::Value) -> serde_json::Value {
+        let project_filter = params.get("project").and_then(|v| v.as_str());
         let sessions: Vec<serde_json::Value> = self
             .filtered_sessions()
             .into_iter()
+            .filter(|s| {
+                project_filter.is_none_or(|name| s.project_name == name)
+            })
             .map(|s| {
                 let state_name = match s.state {
                     ClaudeState::Idle => "Idle",
@@ -1772,7 +1777,7 @@ mod tests {
     #[test]
     fn test_serialize_sessions_empty() {
         let app = AppState::new(None);
-        let result = app.serialize_sessions();
+        let result = app.serialize_sessions(&serde_json::json!({}));
         assert_eq!(result["sessions"], serde_json::json!([]));
         assert_eq!(result["visible"], false);
     }
@@ -1790,7 +1795,7 @@ mod tests {
         app.sessions[0].session_id = Some("abc-123".to_string());
         app.sessions[0].git_branch = Some("main".to_string());
 
-        let result = app.serialize_sessions();
+        let result = app.serialize_sessions(&serde_json::json!({}));
         let sessions = result["sessions"].as_array().unwrap();
         assert_eq!(sessions.len(), 1);
 
@@ -1817,7 +1822,7 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
 
-        let result = app.serialize_sessions();
+        let result = app.serialize_sessions(&serde_json::json!({}));
         let sessions = result["sessions"].as_array().unwrap();
         assert_eq!(sessions[0]["state"], "WaitingForApproval");
     }
@@ -1826,7 +1831,7 @@ mod tests {
     fn test_serialize_sessions_visible_true() {
         let mut app = AppState::new(None);
         app.claudeye_visible = true;
-        let result = app.serialize_sessions();
+        let result = app.serialize_sessions(&serde_json::json!({}));
         assert_eq!(result["visible"], true);
     }
 
@@ -1841,16 +1846,45 @@ mod tests {
         app.sync_with_monitor(&monitor);
 
         // All tab returns all sessions
-        let result = app.serialize_sessions();
+        let result = app.serialize_sessions(&serde_json::json!({}));
         let sessions = result["sessions"].as_array().unwrap();
         assert_eq!(sessions.len(), 3);
 
         // Select "crmux" project tab
         app.tab_state.selected_tab = 2; // Tab::Project("crmux")
-        let result = app.serialize_sessions();
+        let result = app.serialize_sessions(&serde_json::json!({}));
         let sessions = result["sessions"].as_array().unwrap();
         assert_eq!(sessions.len(), 2);
         assert!(sessions.iter().all(|s| s["project_name"] == "crmux"));
+    }
+
+    #[test]
+    fn test_serialize_sessions_filter_by_project_param() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Working),
+            make_session(200, "%2", "aegis", ClaudeState::Idle),
+            make_session(300, "%3", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let result = app.serialize_sessions(&serde_json::json!({"project": "crmux"}));
+        let sessions = result["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 2);
+        assert!(sessions.iter().all(|s| s["project_name"] == "crmux"));
+    }
+
+    #[test]
+    fn test_serialize_sessions_filter_by_project_no_match() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let result = app.serialize_sessions(&serde_json::json!({"project": "nonexistent"}));
+        let sessions = result["sessions"].as_array().unwrap();
+        assert_eq!(sessions.len(), 0);
     }
 
     // --- TabState tests ---

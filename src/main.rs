@@ -30,6 +30,7 @@ Methods:
   send-text     Send text to a session pane (notification)
                 Params: {\"text\": \"...\", \"project\": \"...\", \"no_execute\": true, \"mode\": \"plan-mode|accept-edits\"}
   get-sessions  Get all sessions as JSON (request)
+                Params: {\"project\": \"...\"}
   get-plans     Get all accumulated plans as JSON (request)
                 Params: {\"project\": \"...\"}
 
