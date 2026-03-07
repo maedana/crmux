@@ -6,9 +6,6 @@
 - `send_text` RPC: `prefix_commands` parameter to atomically send commands (e.g. `/clear`, `/plan`) before the main text
 - `send_text` RPC: `no_execute` and `prefix_commands` now work regardless of `project` parameter
 
-### Fixed
-- Fix send_text Enter timing: increase paste-to-Enter delay from 50ms to 200ms for reliable execution
-
 ## 0.9.0
 
 ### Added
