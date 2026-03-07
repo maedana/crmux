@@ -452,46 +452,43 @@ impl AppState {
             let Some(text) = msg.params.get("text").and_then(|v| v.as_str()) else {
                 return;
             };
-            if let Some(project) = msg.params.get("project").and_then(|v| v.as_str()) {
-                // Project-targeted send: find idle session for project
-                if let Some(session) = self.find_idle_session_for_project(project) {
-                    let pane_id = session.pane_id.clone();
-                    // Send prefix_commands first (each paste + Enter with 50ms interval)
-                    if let Some(cmds) = msg.params.get("prefix_commands").and_then(|v| v.as_array())
-                    {
-                        for cmd in cmds {
-                            if let Some(cmd_str) = cmd.as_str() {
-                                crate::event_handler::send_paste_to_panes(&[&pane_id], cmd_str);
-                                std::thread::sleep(std::time::Duration::from_millis(50));
-                                crate::event_handler::run_tmux(&[
-                                    "send-keys",
-                                    "-t",
-                                    &pane_id,
-                                    "Enter",
-                                ]);
-                                std::thread::sleep(std::time::Duration::from_millis(50));
-                            }
-                        }
-                    }
-                    crate::event_handler::send_paste_to_panes(&[&pane_id], text);
-                    let no_execute = msg
-                        .params
-                        .get("no_execute")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false);
-                    if !no_execute {
+            // Resolve target pane: project-targeted or selected pane
+            let target_pane = msg
+                .params
+                .get("project")
+                .and_then(|v| v.as_str())
+                .map_or_else(
+                    || self.selected_pane_id().map(String::from),
+                    |project| {
+                        self.find_idle_session_for_project(project)
+                            .map(|s| s.pane_id.clone())
+                    },
+                );
+            let Some(pane_id) = target_pane else {
+                return;
+            };
+            // Send prefix_commands first (each paste + Enter with 50ms interval)
+            if let Some(cmds) = msg.params.get("prefix_commands").and_then(|v| v.as_array()) {
+                for cmd in cmds {
+                    if let Some(cmd_str) = cmd.as_str() {
+                        crate::event_handler::send_paste_to_panes(&[&pane_id], cmd_str);
                         std::thread::sleep(std::time::Duration::from_millis(50));
                         crate::event_handler::run_tmux(&[
-                            "send-keys",
-                            "-t",
-                            &pane_id,
-                            "Enter",
+                            "send-keys", "-t", &pane_id, "Enter",
                         ]);
+                        std::thread::sleep(std::time::Duration::from_millis(50));
                     }
                 }
-            } else if let Some(pane_id) = self.selected_pane_id() {
-                // No project: send to selected pane (existing behavior)
-                crate::event_handler::send_paste_to_panes(&[pane_id], text);
+            }
+            crate::event_handler::send_paste_to_panes(&[&pane_id], text);
+            let no_execute = msg
+                .params
+                .get("no_execute")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            if !no_execute {
+                std::thread::sleep(std::time::Duration::from_millis(50));
+                crate::event_handler::run_tmux(&["send-keys", "-t", &pane_id, "Enter"]);
             }
             return;
         }
@@ -2072,7 +2069,7 @@ mod tests {
     }
 
     #[test]
-    fn test_send_text_prefix_commands_ignored_without_project() {
+    fn test_send_text_prefix_commands_works_without_project() {
         use crate::rpc::RpcMessage;
 
         let mut app = AppState::new(None);
@@ -2089,7 +2086,28 @@ mod tests {
                 "prefix_commands": ["/clear"]
             }),
         });
-        // Should not panic — prefix_commands is simply ignored, text sent to selected pane
+        // Should not panic — prefix_commands works on selected pane too
+    }
+
+    #[test]
+    fn test_send_text_no_execute_works_without_project() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.selected_index = 0;
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({
+                "text": "hello",
+                "no_execute": true
+            }),
+        });
+        // Should not panic — no_execute works on selected pane too
     }
 
     #[test]

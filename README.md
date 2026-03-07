@@ -155,8 +155,8 @@ echo '{"text": "task description", "project": "crmux", "prefix_commands": ["/cle
 **Parameters:**
 - `text` (required): Text to send
 - `project` (optional): Target an idle session whose project name starts with this value
-- `no_execute` (optional): If `true`, paste text without pressing Enter (project mode only)
-- `prefix_commands` (optional): Array of commands to execute before the main text (project mode only, each sent with Enter)
+- `no_execute` (optional): If `true`, paste text without pressing Enter
+- `prefix_commands` (optional): Array of commands to execute before the main text (each sent with Enter)
 
 ## Roadmap
 
