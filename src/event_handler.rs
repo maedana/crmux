@@ -471,7 +471,7 @@ const fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
 }
 
 /// Run a tmux command with the given arguments, suppressing all I/O.
-fn run_tmux(args: &[&str]) {
+pub fn run_tmux(args: &[&str]) {
     let _ = Command::new("tmux")
         .args(args)
         .stdin(Stdio::null())
@@ -1535,4 +1535,5 @@ mod tests {
         // wraps to last
         assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::Project("crmux".to_string()));
     }
+
 }

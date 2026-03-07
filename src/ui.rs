@@ -174,7 +174,7 @@ pub fn draw(
     // Left panel: sessions list
     draw_left_panel(f, sessions, h_chunks[0], selected_index, input_mode, input_buffer, tab_state);
 
-    // Right panel: preview (optionally with input bar at bottom)
+    // Right panel: preview
     let selected_pane_id = sessions
         .get(selected_index)
         .map(|s| s.pane_id.as_str());
@@ -1121,4 +1121,5 @@ mod tests {
         assert!(text.contains("j/k:Scroll"), "Scroll mode footer should contain 'j/k:Scroll', got: {text}");
         assert!(text.contains("Esc:Back"), "Scroll mode footer should contain 'Esc:Back', got: {text}");
     }
+
 }

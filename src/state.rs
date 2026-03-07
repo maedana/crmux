@@ -429,6 +429,15 @@ impl AppState {
         }
     }
 
+    /// Find the idle session for a given project name.
+    /// If multiple idle sessions exist, return the one that has been idle the longest.
+    pub fn find_idle_session_for_project(&self, project: &str) -> Option<&ManagedSession> {
+        self.sessions
+            .iter()
+            .filter(|s| s.project_name == project && s.state == ClaudeState::Idle)
+            .min_by_key(|s| s.state_changed_at)
+    }
+
     /// Refresh git branch names for all sessions by running `git branch --show-current`.
     pub fn refresh_git_branches(&mut self) {
         for session in &mut self.sessions {
@@ -440,9 +449,31 @@ impl AppState {
     /// If the target session is not yet known, the message is buffered in `pending_rpc`.
     pub fn handle_rpc_message(&mut self, msg: &crate::rpc::RpcMessage) {
         if msg.method == "send_text" {
-            if let Some(text) = msg.params.get("text").and_then(|v| v.as_str())
-                && let Some(pane_id) = self.selected_pane_id()
-            {
+            let Some(text) = msg.params.get("text").and_then(|v| v.as_str()) else {
+                return;
+            };
+            if let Some(project) = msg.params.get("project").and_then(|v| v.as_str()) {
+                // Project-targeted send: find idle session for project
+                if let Some(session) = self.find_idle_session_for_project(project) {
+                    let pane_id = session.pane_id.clone();
+                    crate::event_handler::send_paste_to_panes(&[&pane_id], text);
+                    let no_execute = msg
+                        .params
+                        .get("no_execute")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    if !no_execute {
+                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        crate::event_handler::run_tmux(&[
+                            "send-keys",
+                            "-t",
+                            &pane_id,
+                            "Enter",
+                        ]);
+                    }
+                }
+            } else if let Some(pane_id) = self.selected_pane_id() {
+                // No project: send to selected pane (existing behavior)
                 crate::event_handler::send_paste_to_panes(&[pane_id], text);
             }
             return;
@@ -1924,6 +1955,92 @@ mod tests {
         app.handle_rpc_message(&RpcMessage {
             method: "send_text".to_string(),
             params: serde_json::json!({ "text": "hello" }),
+        });
+
+        assert!(app.pending_rpc.is_empty());
+    }
+
+    // --- find_idle_session_for_project ---
+
+    #[test]
+    fn test_find_idle_session_for_project_returns_idle_session() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        let session = app.find_idle_session_for_project("crmux");
+        assert!(session.is_some());
+        assert_eq!(session.unwrap().pid, 100);
+    }
+
+    #[test]
+    fn test_find_idle_session_for_project_no_idle() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert!(app.find_idle_session_for_project("crmux").is_none());
+    }
+
+    #[test]
+    fn test_find_idle_session_for_project_no_matching_project() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert!(app.find_idle_session_for_project("torudo").is_none());
+    }
+
+    #[test]
+    fn test_find_idle_session_for_project_picks_longest_idle() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        // Make session 100 have an older state_changed_at (longer idle)
+        app.sessions[0].state_changed_at = Instant::now() - std::time::Duration::from_secs(60);
+        app.sessions[1].state_changed_at = Instant::now() - std::time::Duration::from_secs(10);
+
+        let session = app.find_idle_session_for_project("crmux");
+        assert_eq!(session.unwrap().pid, 100);
+    }
+
+    // --- send_text with project ---
+
+    #[test]
+    fn test_send_text_with_project_no_idle_session_does_not_panic() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({ "text": "hello", "project": "crmux" }),
+        });
+        // Should not panic
+    }
+
+    #[test]
+    fn test_send_text_with_project_does_not_enter_pending_rpc() {
+        use crate::rpc::RpcMessage;
+
+        let mut app = AppState::new(None);
+        app.handle_rpc_message(&RpcMessage {
+            method: "send_text".to_string(),
+            params: serde_json::json!({ "text": "hello", "project": "nonexistent" }),
         });
 
         assert!(app.pending_rpc.is_empty());
