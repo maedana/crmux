@@ -467,16 +467,19 @@ impl AppState {
             let Some(pane_id) = target_pane else {
                 return;
             };
-            // Send prefix_commands first (each paste + Enter with 50ms interval)
+            // 200ms interval between paste and Enter.
+            // tmux send-keys returns immediately, but the target app (Claude Code)
+            // needs time to process the pasted text before accepting Enter.
+            // 50ms was too fast; 200ms matches typical human keystroke interval.
             if let Some(cmds) = msg.params.get("prefix_commands").and_then(|v| v.as_array()) {
                 for cmd in cmds {
                     if let Some(cmd_str) = cmd.as_str() {
                         crate::event_handler::send_paste_to_panes(&[&pane_id], cmd_str);
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        std::thread::sleep(std::time::Duration::from_millis(200));
                         crate::event_handler::run_tmux(&[
                             "send-keys", "-t", &pane_id, "Enter",
                         ]);
-                        std::thread::sleep(std::time::Duration::from_millis(50));
+                        std::thread::sleep(std::time::Duration::from_millis(200));
                     }
                 }
             }
@@ -487,7 +490,7 @@ impl AppState {
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             if !no_execute {
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                std::thread::sleep(std::time::Duration::from_millis(200));
                 crate::event_handler::run_tmux(&["send-keys", "-t", &pane_id, "Enter"]);
             }
             return;
