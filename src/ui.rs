@@ -201,6 +201,11 @@ pub fn draw(
         && let Some((cx, cy)) = preview_cursor
     {
         f.set_cursor_position((cx, cy));
+        // ブロックカーソルだと反転セルと二重反転になり見えなくなるためバーカーソルを使用
+        crossterm::execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::SteadyBar).ok();
+    } else {
+        // Normalモード復帰時にカーソル形状をデフォルトに戻す
+        crossterm::execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::DefaultUserShape).ok();
     }
 
     // Help popup overlay
@@ -269,6 +274,23 @@ fn draw_right_panel(
     draw_preview_panes(f, preview_contents, area, selected_pane_id, preview_scroll)
 }
 
+/// Compute cursor position for IME anchor within a preview pane.
+///
+/// If `cursor_pos` is `Some`, place the cursor at the detected reverse-video cell,
+/// adjusted for scroll offset and inner area origin. Otherwise, fall back to bottom-left.
+fn compute_cursor_pos(inner: Rect, cursor_pos: Option<(u16, u16)>, scroll_y: u16) -> (u16, u16) {
+    if let Some((crow, ccol)) = cursor_pos {
+        let y = inner.y + crow.saturating_sub(scroll_y);
+        let x = inner.x + ccol;
+        (
+            x.min(inner.x + inner.width.saturating_sub(1)),
+            y.min(inner.y + inner.height.saturating_sub(1)),
+        )
+    } else {
+        (inner.x, inner.y + inner.height.saturating_sub(1))
+    }
+}
+
 /// Draw one or more preview panes, splitting the area vertically.
 /// Returns the cursor position (x, y) for the selected preview pane's bottom-left (IME anchor).
 // Single/multi-pane rendering is already split into branches; further extraction hurts readability.
@@ -318,7 +340,7 @@ fn draw_preview_panes(
             )
             .scroll((scroll_y, 0));
         let inner = Block::default().borders(Borders::ALL).inner(area);
-        let cursor_pos = (inner.x, inner.y + inner.height.saturating_sub(1));
+        let cursor_pos = compute_cursor_pos(inner, entry.cursor_pos, scroll_y);
         f.render_widget(preview, area);
         return Some(cursor_pos);
     }
@@ -383,7 +405,7 @@ fn draw_preview_panes(
                 .scroll((scroll_y, 0));
             if is_focused {
                 let inner = Block::default().borders(Borders::ALL).inner(cell_area);
-                cursor_pos = Some((inner.x, inner.y + inner.height.saturating_sub(1)));
+                cursor_pos = Some(compute_cursor_pos(inner, entry.cursor_pos, scroll_y));
             }
             f.render_widget(preview, cell_area);
             idx += 1;
