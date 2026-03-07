@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.0
+
+### Added
+- `send_text` RPC: `prefix_commands` parameter to atomically send commands (e.g. `/clear`, `/plan`) before the main text
+- `send_text` RPC: `no_execute` and `prefix_commands` now work regardless of `project` parameter
+
+### Fixed
+- Fix send_text Enter timing: increase paste-to-Enter delay from 50ms to 200ms for reliable execution
+
 ## 0.9.0
 
 ### Added
@@ -7,7 +16,6 @@
 - Apply tab filter to claudeye overlay via `serialize_sessions`
 - `send_text` RPC method: external tools can send text to the selected pane via `echo '{"text": "..."}' | crmux notify send-text`
 - `send_text` RPC: `project` parameter for targeting idle sessions by project name
-- `send_text` RPC: `prefix_commands` parameter to atomically send commands (e.g. `/clear`, `/plan`) before the main text
 
 ### Fixed
 - Fix preview area top clipping by trimming trailing blank lines
