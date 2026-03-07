@@ -5,6 +5,10 @@
 ### Added
 - `send_text` RPC: `project` parameter for targeting idle sessions by project name
 - `send_text` RPC: `no_execute` parameter to paste text without pressing Enter
+- Display permission mode icon (Plan: ⏸, Auto Edit: ⏵⏵) in session list
+
+### Changed
+- Switch tmux-claude-state dependency to crates.io 0.3.0
 
 ## 0.9.0
 
