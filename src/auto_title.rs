@@ -90,6 +90,109 @@ pub fn extract_last_prompt_from_jsonl(file: &std::fs::File) -> Option<String> {
     None
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlanInfo {
+    pub slug: String,
+    pub title: String,
+    pub path: String,
+    pub project_name: String,
+    pub session_id: String,
+}
+
+/// Resolve plan info from a session's JSONL file.
+/// Returns `PlanInfo` if the session has a slug and the corresponding plan file exists.
+pub fn resolve_plan_info(cwd: &str, session_id: &str, project_name: &str) -> Option<PlanInfo> {
+    let home = std::env::var("HOME").ok()?;
+    resolve_plan_info_with_home(&home, cwd, session_id, project_name)
+}
+
+fn resolve_plan_info_with_home(
+    home: &str,
+    cwd: &str,
+    session_id: &str,
+    project_name: &str,
+) -> Option<PlanInfo> {
+    let project_dir = cwd_to_project_dir(cwd);
+    let base = format!("{home}/.claude/projects/{project_dir}");
+    let jsonl_path = format!("{base}/{session_id}.jsonl");
+
+    let file = std::fs::File::open(&jsonl_path).ok()?;
+    let reader = std::io::BufReader::new(file);
+    let slug = extract_slug_from_jsonl(reader)?;
+
+    let plans_dir = std::path::PathBuf::from(format!("{home}/.claude/plans"));
+    let plan_path = plans_dir.join(format!("{slug}.md"));
+    let title = read_plan_title(&plans_dir, &slug)?;
+
+    Some(PlanInfo {
+        slug,
+        title,
+        path: plan_path.to_string_lossy().into_owned(),
+        project_name: project_name.to_string(),
+        session_id: session_id.to_string(),
+    })
+}
+
+pub fn collect_all_plans_for_project(cwd: &str, project_name: &str) -> Vec<PlanInfo> {
+    let Some(home) = std::env::var("HOME").ok() else {
+        return Vec::new();
+    };
+    collect_all_plans_for_project_with_home(&home, cwd, project_name)
+}
+
+fn collect_all_plans_for_project_with_home(
+    home: &str,
+    cwd: &str,
+    project_name: &str,
+) -> Vec<PlanInfo> {
+    let project_dir = cwd_to_project_dir(cwd);
+    let base = std::path::PathBuf::from(format!("{home}/.claude/projects/{project_dir}"));
+    let plans_dir = std::path::PathBuf::from(format!("{home}/.claude/plans"));
+
+    let entries = match std::fs::read_dir(&base) {
+        Ok(entries) => entries,
+        Err(_) => return Vec::new(),
+    };
+
+    let mut plans = Vec::new();
+    let mut seen_slugs = std::collections::HashSet::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let session_id = match path.file_stem().and_then(|s| s.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        let file = match std::fs::File::open(&path) {
+            Ok(f) => f,
+            Err(_) => continue,
+        };
+        let reader = std::io::BufReader::new(file);
+        let slug = match extract_slug_from_jsonl(reader) {
+            Some(s) => s,
+            None => continue,
+        };
+        if !seen_slugs.insert(slug.clone()) {
+            continue;
+        }
+        let title = match read_plan_title(&plans_dir, &slug) {
+            Some(t) => t,
+            None => continue,
+        };
+        let plan_path = plans_dir.join(format!("{slug}.md"));
+        plans.push(PlanInfo {
+            slug,
+            title,
+            path: plan_path.to_string_lossy().into_owned(),
+            project_name: project_name.to_string(),
+            session_id,
+        });
+    }
+    plans
+}
+
 pub fn resolve_auto_title(cwd: &str, session_id: &str) -> Option<String> {
     let home = std::env::var("HOME").ok()?;
     let project_dir = cwd_to_project_dir(cwd);
@@ -294,5 +397,161 @@ mod tests {
             super::extract_last_prompt_from_jsonl(&file),
             Some("last msg".to_string())
         );
+    }
+
+    #[test]
+    fn test_resolve_plan_info_found() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+
+        let project_dir = super::cwd_to_project_dir("/work/myproject");
+        let session_dir = home_dir.path().join(format!(".claude/projects/{project_dir}"));
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let jsonl_content = r#"{"slug":"my-plan","type":"user","message":{"content":"hello"}}"#;
+        std::fs::write(session_dir.join("sess-001.jsonl"), jsonl_content).unwrap();
+
+        let plans_dir = home_dir.path().join(".claude/plans");
+        std::fs::create_dir_all(&plans_dir).unwrap();
+        std::fs::write(plans_dir.join("my-plan.md"), "# My Great Plan\ndetails\n").unwrap();
+
+        let result =
+            super::resolve_plan_info_with_home(home, "/work/myproject", "sess-001", "myproject");
+        assert!(result.is_some());
+        let info = result.unwrap();
+        assert_eq!(info.slug, "my-plan");
+        assert_eq!(info.title, "My Great Plan");
+        assert_eq!(info.project_name, "myproject");
+        assert_eq!(info.session_id, "sess-001");
+        assert!(info.path.ends_with("my-plan.md"));
+    }
+
+    #[test]
+    fn test_resolve_plan_info_no_slug() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+
+        let project_dir = super::cwd_to_project_dir("/work/myproject");
+        let session_dir = home_dir.path().join(format!(".claude/projects/{project_dir}"));
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let jsonl_content = r#"{"type":"user","message":{"content":"no slug here"}}"#;
+        std::fs::write(session_dir.join("sess-002.jsonl"), jsonl_content).unwrap();
+
+        let result =
+            super::resolve_plan_info_with_home(home, "/work/myproject", "sess-002", "myproject");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_resolve_plan_info_no_plan_file() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+
+        let project_dir = super::cwd_to_project_dir("/work/myproject");
+        let session_dir = home_dir.path().join(format!(".claude/projects/{project_dir}"));
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let jsonl_content = r#"{"slug":"missing-plan","type":"user","message":{"content":"hello"}}"#;
+        std::fs::write(session_dir.join("sess-003.jsonl"), jsonl_content).unwrap();
+
+        let plans_dir = home_dir.path().join(".claude/plans");
+        std::fs::create_dir_all(&plans_dir).unwrap();
+
+        let result =
+            super::resolve_plan_info_with_home(home, "/work/myproject", "sess-003", "myproject");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_collect_all_plans_empty_dir() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+        let project_dir = super::cwd_to_project_dir("/work/myproject");
+
+        // Create the project sessions dir but leave it empty
+        let session_dir = home_dir.path().join(format!(".claude/projects/{project_dir}"));
+        std::fs::create_dir_all(&session_dir).unwrap();
+        let plans_dir = home_dir.path().join(".claude/plans");
+        std::fs::create_dir_all(&plans_dir).unwrap();
+
+        let result = super::collect_all_plans_for_project_with_home(home, "/work/myproject", "myproject");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_collect_all_plans_with_slugs() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+        let project_dir = super::cwd_to_project_dir("/work/myproject");
+
+        let session_dir = home_dir.path().join(format!(".claude/projects/{project_dir}"));
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        // Create a JSONL file with a slug
+        let jsonl_content = r#"{"slug":"plan-alpha","type":"user","message":{"content":"hello"}}"#;
+        std::fs::write(session_dir.join("sess-001.jsonl"), jsonl_content).unwrap();
+
+        // Create the corresponding plan file
+        let plans_dir = home_dir.path().join(".claude/plans");
+        std::fs::create_dir_all(&plans_dir).unwrap();
+        std::fs::write(plans_dir.join("plan-alpha.md"), "# Alpha Plan\ndetails\n").unwrap();
+
+        let result = super::collect_all_plans_for_project_with_home(home, "/work/myproject", "myproject");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].slug, "plan-alpha");
+        assert_eq!(result[0].title, "Alpha Plan");
+        assert_eq!(result[0].project_name, "myproject");
+        assert_eq!(result[0].session_id, "sess-001");
+    }
+
+    #[test]
+    fn test_collect_all_plans_deduplicates_by_slug() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+        let project_dir = super::cwd_to_project_dir("/work/myproject");
+
+        let session_dir = home_dir.path().join(format!(".claude/projects/{project_dir}"));
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        // Two JSONL files with the same slug
+        let jsonl = r#"{"slug":"same-plan","type":"user","message":{"content":"hello"}}"#;
+        std::fs::write(session_dir.join("sess-001.jsonl"), jsonl).unwrap();
+        std::fs::write(session_dir.join("sess-002.jsonl"), jsonl).unwrap();
+
+        let plans_dir = home_dir.path().join(".claude/plans");
+        std::fs::create_dir_all(&plans_dir).unwrap();
+        std::fs::write(plans_dir.join("same-plan.md"), "# Same Plan\n").unwrap();
+
+        let result = super::collect_all_plans_for_project_with_home(home, "/work/myproject", "myproject");
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].slug, "same-plan");
+    }
+
+    #[test]
+    fn test_collect_all_plans_missing_plan_file() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+        let project_dir = super::cwd_to_project_dir("/work/myproject");
+
+        let session_dir = home_dir.path().join(format!(".claude/projects/{project_dir}"));
+        std::fs::create_dir_all(&session_dir).unwrap();
+
+        // JSONL with slug, but no corresponding plan.md
+        let jsonl = r#"{"slug":"ghost-plan","type":"user","message":{"content":"hello"}}"#;
+        std::fs::write(session_dir.join("sess-001.jsonl"), jsonl).unwrap();
+
+        let plans_dir = home_dir.path().join(".claude/plans");
+        std::fs::create_dir_all(&plans_dir).unwrap();
+        // No ghost-plan.md created
+
+        let result = super::collect_all_plans_for_project_with_home(home, "/work/myproject", "myproject");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_collect_all_plans_nonexistent_dir() {
+        let home_dir = tempfile::tempdir().unwrap();
+        let home = home_dir.path().to_str().unwrap();
+        // Don't create any directories
+        let result = super::collect_all_plans_for_project_with_home(home, "/nonexistent/path", "myproject");
+        assert!(result.is_empty());
     }
 }

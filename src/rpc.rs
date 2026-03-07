@@ -34,7 +34,6 @@ pub fn encode_notification(method: &str, params: &Value) -> Vec<u8> {
 }
 
 /// Encode an RPC request as msgpack-rpc wire format: `[0, msgid, method, params]`
-#[cfg(test)]
 pub fn encode_request(msgid: u32, method: &str, params: &Value) -> Vec<u8> {
     let mut buf = Vec::new();
     rmp::encode::write_array_len(&mut buf, 4).expect("encode array len");
@@ -108,7 +107,6 @@ pub fn encode_response(msgid: u32, result: &Value) -> Vec<u8> {
 }
 
 /// Decode an RPC response from msgpack-rpc wire format: `[1, msgid, null, result]`
-#[cfg(test)]
 pub fn decode_response(data: &[u8]) -> io::Result<(u32, Value)> {
     let mut cursor = io::Cursor::new(data);
 
@@ -327,6 +325,20 @@ pub fn send_notification(method: &str, params: &Value) -> io::Result<()> {
     stream.write_all(&data)?;
     stream.shutdown(std::net::Shutdown::Write)?;
     Ok(())
+}
+
+/// Send an RPC request to the running crmux instance and return the response.
+pub fn send_request(method: &str, params: &Value) -> io::Result<Value> {
+    let path = socket_path();
+    let mut stream = UnixStream::connect(&path)?;
+    let data = encode_request(1, method, params);
+    stream.write_all(&data)?;
+    stream.shutdown(std::net::Shutdown::Write)?;
+
+    let mut buf = Vec::new();
+    std::io::Read::read_to_end(&mut stream, &mut buf)?;
+    let (_msgid, result) = decode_response(&buf)?;
+    Ok(result)
 }
 
 #[cfg(test)]

@@ -17,22 +17,37 @@ struct Cli {
 
 #[derive(clap::Subcommand)]
 enum Commands {
-    /// Send a notification to running crmux instance
+    /// Call an RPC method on the running crmux instance
     #[command(
         verbatim_doc_comment,
         long_about = "\
-Send a notification to running crmux instance
+Call an RPC method on the running crmux instance
 
-Reads JSON params from stdin and sends them as an RPC message.
+For notification methods, reads JSON params from stdin.
+For request methods (get-*), sends a request and prints the JSON response.
 
-Events:
-  send-text  Send text to a session pane
-             Params: {\"text\": \"...\", \"project\": \"...\", \"no_execute\": true, \"mode\": \"plan-mode|accept-edits\"}
+Methods:
+  send-text     Send text to a session pane (notification)
+                Params: {\"text\": \"...\", \"project\": \"...\", \"no_execute\": true, \"mode\": \"plan-mode|accept-edits\"}
+  get-sessions  Get all sessions as JSON (request)
+  get-plans     Get all accumulated plans as JSON (request)
+                Params: {\"project\": \"...\"}
 
-Example: echo '{\"text\": \"hello\"}' | crmux notify send-text"
+Examples:
+  echo '{\"text\": \"hello\"}' | crmux rpc send-text
+  crmux rpc get-sessions
+  crmux rpc get-plans
+  echo '{\"project\": \"myapp\"}' | crmux rpc get-plans"
     )]
+    Rpc {
+        /// Method name (e.g., send-text, get-sessions, get-plans)
+        method: String,
+    },
+
+    /// [deprecated] Use 'rpc' instead. Will be removed in a future version.
+    #[command(hide = true)]
     Notify {
-        /// Event type (e.g., send-text)
+        /// Event type
         event: String,
     },
 }
@@ -46,8 +61,15 @@ fn main() {
     .expect("failed to parse CLI arguments");
 
     match cli.command {
+        Some(Commands::Rpc { method }) => {
+            if let Err(e) = handle_rpc(&method) {
+                eprintln!("crmux rpc error: {e}");
+                std::process::exit(1);
+            }
+        }
         Some(Commands::Notify { event }) => {
-            if let Err(e) = handle_notify(&event) {
+            eprintln!("warning: 'crmux notify' is deprecated, use 'crmux rpc' instead");
+            if let Err(e) = handle_rpc(&event) {
                 eprintln!("crmux notify error: {e}");
                 std::process::exit(1);
             }
@@ -66,7 +88,24 @@ fn main() {
     }
 }
 
-fn handle_notify(event: &str) -> Result<(), Box<dyn std::error::Error>> {
+fn handle_rpc(event: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let method = event.replace('-', "_");
+
+    // Request-type methods: send RPC request and print response
+    if method.starts_with("get_") {
+        let params = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            serde_json::json!({})
+        } else {
+            let mut input = String::new();
+            std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
+            serde_json::from_str(input.trim()).unwrap_or_else(|_| serde_json::json!({}))
+        };
+        let result = rpc::send_request(&method, &params)?;
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
+    }
+
+    // Notification-type methods: read params from stdin
     let mut input = String::new();
     std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
 
@@ -95,7 +134,6 @@ fn handle_notify(event: &str) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let method = event.replace('-', "_");
     rpc::send_notification(&method, &params)?;
     Ok(())
 }

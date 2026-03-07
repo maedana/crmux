@@ -225,10 +225,14 @@ pub struct AppState {
     pub claudeye_visible: bool,
     /// Tab state for project-based filtering.
     pub tab_state: TabState,
+    /// Accumulated plan info from sessions.
+    pub plans: Vec<crate::auto_title::PlanInfo>,
+    /// Project dirs already scanned for historical plans.
+    pub scanned_project_dirs: std::collections::HashSet<String>,
 }
 
 impl AppState {
-    pub const fn new(own_pid: Option<u32>) -> Self {
+    pub fn new(own_pid: Option<u32>) -> Self {
         Self {
             sessions: Vec::new(),
             selected_index: 0,
@@ -245,6 +249,8 @@ impl AppState {
             esc_source_mode: None,
             claudeye_visible: false,
             tab_state: TabState::new(),
+            plans: Vec::new(),
+            scanned_project_dirs: std::collections::HashSet::new(),
         }
     }
 
@@ -439,8 +445,37 @@ impl AppState {
             .collect()
     }
 
+    /// Load historical plans for a given cwd/project. Skips slugs already in `self.plans`.
+    pub fn load_historical_plans(&mut self, cwd: &str, project_name: &str) {
+        let project_dir = crate::auto_title::cwd_to_project_dir(cwd);
+        if !self.scanned_project_dirs.insert(project_dir) {
+            return;
+        }
+        let historical = crate::auto_title::collect_all_plans_for_project(cwd, project_name);
+        for plan in historical {
+            if !self.plans.iter().any(|p| p.slug == plan.slug) {
+                self.plans.push(plan);
+            }
+        }
+    }
+
     /// Refresh auto titles for sessions that have `session_id` and no manual title.
+    /// Also collects plan info from sessions with slugs.
     pub fn refresh_auto_titles(&mut self) {
+        // Lazy-scan historical plans for newly discovered project dirs
+        let unseen: Vec<(String, String)> = self
+            .sessions
+            .iter()
+            .filter(|s| {
+                let pd = crate::auto_title::cwd_to_project_dir(&s.cwd);
+                !self.scanned_project_dirs.contains(&pd)
+            })
+            .map(|s| (s.cwd.clone(), s.project_name.clone()))
+            .collect();
+        for (cwd, project_name) in unseen {
+            self.load_historical_plans(&cwd, &project_name);
+        }
+
         for session in &mut self.sessions {
             if session.title.is_some() {
                 continue;
@@ -448,6 +483,20 @@ impl AppState {
             if let (Some(session_id), cwd) = (&session.session_id, &session.cwd) {
                 session.auto_title =
                     crate::auto_title::resolve_auto_title(cwd, session_id);
+
+                if let Some(plan_info) = crate::auto_title::resolve_plan_info(
+                    cwd,
+                    session_id,
+                    &session.project_name,
+                ) {
+                    if let Some(existing) =
+                        self.plans.iter_mut().find(|p| p.slug == plan_info.slug)
+                    {
+                        *existing = plan_info;
+                    } else {
+                        self.plans.push(plan_info);
+                    }
+                }
             }
         }
     }
@@ -625,6 +674,29 @@ impl AppState {
             "sessions": sessions,
             "visible": self.claudeye_visible,
         })
+    }
+
+    /// Serialize all accumulated plans as a JSON value.
+    /// If `params` contains a `"project"` key, filter plans by project name.
+    pub fn serialize_plans(&self, params: &serde_json::Value) -> serde_json::Value {
+        let project_filter = params.get("project").and_then(|v| v.as_str());
+        let plans: Vec<serde_json::Value> = self
+            .plans
+            .iter()
+            .filter(|p| {
+                project_filter.is_none_or(|name| p.project_name == name)
+            })
+            .map(|p| {
+                serde_json::json!({
+                    "slug": p.slug,
+                    "title": p.title,
+                    "path": p.path,
+                    "project_name": p.project_name,
+                    "session_id": p.session_id,
+                })
+            })
+            .collect();
+        serde_json::json!({ "plans": plans })
     }
 }
 
@@ -2179,5 +2251,168 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor2);
         assert_eq!(app.tab_state.tabs.len(), 3); // All + aegis + crmux
+    }
+
+    // --- plans ---
+
+    #[test]
+    fn test_plans_initially_empty() {
+        let app = AppState::new(None);
+        assert!(app.plans.is_empty());
+    }
+
+    #[test]
+    fn test_serialize_plans_empty() {
+        let app = AppState::new(None);
+        let result = app.serialize_plans(&serde_json::json!({}));
+        assert_eq!(result["plans"], serde_json::json!([]));
+    }
+
+    #[test]
+    fn test_serialize_plans_with_entries() {
+        let mut app = AppState::new(None);
+        app.plans.push(crate::auto_title::PlanInfo {
+            slug: "my-plan".to_string(),
+            title: "My Plan Title".to_string(),
+            path: "/home/user/.claude/plans/my-plan.md".to_string(),
+            project_name: "crmux".to_string(),
+            session_id: "sess-001".to_string(),
+        });
+
+        let result = app.serialize_plans(&serde_json::json!({}));
+        let plans = result["plans"].as_array().unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0]["slug"], "my-plan");
+        assert_eq!(plans[0]["title"], "My Plan Title");
+        assert_eq!(plans[0]["path"], "/home/user/.claude/plans/my-plan.md");
+        assert_eq!(plans[0]["project_name"], "crmux");
+        assert_eq!(plans[0]["session_id"], "sess-001");
+    }
+
+    #[test]
+    fn test_serialize_plans_filter_by_project() {
+        let mut app = AppState::new(None);
+        app.plans.push(crate::auto_title::PlanInfo {
+            slug: "plan-a".to_string(),
+            title: "Plan A".to_string(),
+            path: "/path/plan-a.md".to_string(),
+            project_name: "crmux".to_string(),
+            session_id: "sess-001".to_string(),
+        });
+        app.plans.push(crate::auto_title::PlanInfo {
+            slug: "plan-b".to_string(),
+            title: "Plan B".to_string(),
+            path: "/path/plan-b.md".to_string(),
+            project_name: "other-project".to_string(),
+            session_id: "sess-002".to_string(),
+        });
+
+        let result = app.serialize_plans(&serde_json::json!({"project": "crmux"}));
+        let plans = result["plans"].as_array().unwrap();
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0]["slug"], "plan-a");
+        assert_eq!(plans[0]["project_name"], "crmux");
+    }
+
+    #[test]
+    fn test_serialize_plans_filter_no_match() {
+        let mut app = AppState::new(None);
+        app.plans.push(crate::auto_title::PlanInfo {
+            slug: "plan-a".to_string(),
+            title: "Plan A".to_string(),
+            path: "/path/plan-a.md".to_string(),
+            project_name: "crmux".to_string(),
+            session_id: "sess-001".to_string(),
+        });
+
+        let result = app.serialize_plans(&serde_json::json!({"project": "nonexistent"}));
+        let plans = result["plans"].as_array().unwrap();
+        assert_eq!(plans.len(), 0);
+    }
+
+    #[test]
+    fn test_plans_dedup_by_slug() {
+        let mut app = AppState::new(None);
+        let plan1 = crate::auto_title::PlanInfo {
+            slug: "my-plan".to_string(),
+            title: "Old Title".to_string(),
+            path: "/path/my-plan.md".to_string(),
+            project_name: "proj".to_string(),
+            session_id: "sess-001".to_string(),
+        };
+        let plan2 = crate::auto_title::PlanInfo {
+            slug: "my-plan".to_string(),
+            title: "New Title".to_string(),
+            path: "/path/my-plan.md".to_string(),
+            project_name: "proj".to_string(),
+            session_id: "sess-002".to_string(),
+        };
+
+        // Simulate what refresh_auto_titles does
+        app.plans.push(plan1);
+        if let Some(existing) = app.plans.iter_mut().find(|p| p.slug == plan2.slug) {
+            *existing = plan2;
+        }
+
+        assert_eq!(app.plans.len(), 1);
+        assert_eq!(app.plans[0].title, "New Title");
+        assert_eq!(app.plans[0].session_id, "sess-002");
+    }
+
+    #[test]
+    fn test_load_historical_plans_no_overwrite() {
+        let mut app = AppState::new(None);
+        // Pre-populate with an existing plan
+        app.plans.push(crate::auto_title::PlanInfo {
+            slug: "existing-plan".to_string(),
+            title: "Current Title".to_string(),
+            path: "/path/existing-plan.md".to_string(),
+            project_name: "myproject".to_string(),
+            session_id: "sess-active".to_string(),
+        });
+
+        // Simulate what load_historical_plans does internally:
+        // historical plans with same slug should not overwrite existing
+        let historical = vec![crate::auto_title::PlanInfo {
+            slug: "existing-plan".to_string(),
+            title: "Historical Title".to_string(),
+            path: "/path/existing-plan.md".to_string(),
+            project_name: "myproject".to_string(),
+            session_id: "sess-old".to_string(),
+        }];
+        for plan in historical {
+            if !app.plans.iter().any(|p| p.slug == plan.slug) {
+                app.plans.push(plan);
+            }
+        }
+
+        assert_eq!(app.plans.len(), 1);
+        assert_eq!(app.plans[0].title, "Current Title"); // not overwritten
+        assert_eq!(app.plans[0].session_id, "sess-active"); // not overwritten
+    }
+
+    #[test]
+    fn test_scanned_project_dirs_dedup() {
+        let mut app = AppState::new(None);
+        let project_dir = crate::auto_title::cwd_to_project_dir("/work/myproject");
+
+        // First insert succeeds
+        assert!(app.scanned_project_dirs.insert(project_dir.clone()));
+        // Second insert returns false (already present)
+        assert!(!app.scanned_project_dirs.insert(project_dir));
+        assert_eq!(app.scanned_project_dirs.len(), 1);
+    }
+
+    #[test]
+    fn test_load_historical_plans_skips_scanned_dir() {
+        let mut app = AppState::new(None);
+        // Mark project dir as already scanned
+        let project_dir = crate::auto_title::cwd_to_project_dir("/work/myproject");
+        app.scanned_project_dirs.insert(project_dir);
+
+        // load_historical_plans should early-return without adding anything
+        // (even though the dir doesn't exist, the point is it won't even try)
+        app.load_historical_plans("/work/myproject", "myproject");
+        assert!(app.plans.is_empty());
     }
 }

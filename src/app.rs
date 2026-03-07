@@ -220,16 +220,29 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let app_state = Arc::new(Mutex::new(AppState::new(Some(own_pid))));
+    let app_state = {
+        let mut state = AppState::new(Some(own_pid));
+        if let Ok(cwd) = std::env::current_dir() {
+            let cwd_str = cwd.to_string_lossy();
+            let project_name = cwd
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            state.load_historical_plans(&cwd_str, &project_name);
+        }
+        Arc::new(Mutex::new(state))
+    };
 
     let handler_state = Arc::clone(&app_state);
-    let handler: crate::rpc::RequestHandler = Arc::new(move |method, _params| {
-        if method == "get_sessions"
-            && let Ok(state) = handler_state.lock()
-        {
-            return state.serialize_sessions();
+    let handler: crate::rpc::RequestHandler = Arc::new(move |method, params| {
+        let Ok(state) = handler_state.lock() else {
+            return serde_json::Value::Null;
+        };
+        match method {
+            "get_sessions" => state.serialize_sessions(),
+            "get_plans" => state.serialize_plans(params),
+            _ => serde_json::Value::Null,
         }
-        serde_json::Value::Null
     });
     let rpc_server = crate::rpc::RpcServer::start(Some(handler)).ok();
 
