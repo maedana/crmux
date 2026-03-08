@@ -154,11 +154,9 @@ echo '{"text": "draft prompt", "project": "crmux", "no_execute": true}' | crmux 
 - `project` (optional): Target an idle session whose project name starts with this value
 - `no_execute` (optional): If `true`, paste text without pressing Enter
 
-## Helper Scripts
+### Example: crmux-plan-search
 
-### crmux-plan-search
-
-Incrementally search plan files for a project with fzf and send the selected path to crmux.
+By combining `get-plans` and `send-text` RPCs, you can build custom workflows. `scripts/crmux-plan-search` is an example that incrementally searches plan files with fzf and sends the selected path to crmux. Claude Code stores all plan files in a single directory without per-project separation, but `get-plans` filters them by project so you can search within a specific repository.
 
 **Requirements:** `fzf`, `rg`, `jq`
 
