@@ -174,8 +174,12 @@ crmux-plan-search <project>
 
 ## Roadmap
 
+- Priority job queue: enqueue tasks with priority levels and auto-dispatch to idle sessions
+- Persistent usage/limit display: always show `/usage` info (remaining requests, reset time) in the sidebar
+- Incremental search: quickly find and jump to sessions by filtering with search keywords
+- Session bookmarks: save named groups of marked sessions as custom tabs alongside All/project tabs
+- State persistence: persist job queue and other state across restarts
 - Display worktree info per session
-- Programmatic control from external tools (partial: `send_text` RPC available, more subcommands planned)
 
 ## Limitations
 
