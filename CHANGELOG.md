@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+- Skip idle pulse notification for freshly launched sessions (only pulse after task completion)
+- Fall back to last valid cursor position for IME anchor when capture-pane misses the cursor
+
 ## 0.11.0
 
 ### Added
