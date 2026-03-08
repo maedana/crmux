@@ -180,6 +180,8 @@ crmux-plan-search <project>
 - Session bookmarks: save named groups of marked sessions as custom tabs alongside All/project tabs
 - State persistence: persist job queue and other state across restarts
 - Display worktree info per session
+- Core library extraction: extract tmux operations and session state management into a UI-independent library crate, including session creation and lifecycle management
+- Tauri desktop app: desktop application using the core library with HTML/CSS rendering (ANSI→HTML conversion) for flexible layout
 
 ## Limitations
 
