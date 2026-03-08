@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.11.0
+
+### Added
+- `get-plans` RPC subcommand with project-based filtering
+- `get-sessions` RPC subcommand with project-based filtering
+- Cursor position detection from reverse-video cells in captured pane content
+- `crmux-plan-search` helper script for incremental plan file search with fzf
+
+### Changed
+- Use bar cursor in INSERT/Broadcast mode to prevent double-inversion with reverse-video cells
+
 ## 0.10.0
 
 ### Added
