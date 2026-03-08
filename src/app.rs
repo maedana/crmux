@@ -62,7 +62,8 @@ fn capture_pane_content(pane_id: &str, scrollback_lines: Option<u16>) -> String 
 /// Claude Code renders its cursor as a reverse-video space (`\x1b[7m \x1b[0m`).
 /// Returns `(row, col)` where col accounts for wide characters.
 fn detect_cursor_position(content: &str) -> Option<(u16, u16)> {
-    for (row, line) in content.split('\n').enumerate() {
+    let lines: Vec<&str> = content.split('\n').collect();
+    for (row, line) in lines.iter().enumerate().rev() {
         let mut col: u16 = 0;
         let mut chars = line.chars().peekable();
         let mut in_reverse = false;
@@ -522,6 +523,14 @@ mod tests {
         // color codes don't add to column count
         let input = "\x1b[31mab\x1b[0m\x1b[7m \x1b[0m";
         assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_returns_last_match() {
+        // Two reverse-video cells: row 0 col 2 and row 2 col 3
+        // Should return the last one (row 2, col 3)
+        let input = "ab\x1b[7m \x1b[0mmore\nplain line\n❯  \x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((2, 3)));
     }
 
     #[test]
