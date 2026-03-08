@@ -168,7 +168,8 @@ pub fn draw(
     help_scroll: u16,
     preview_scroll: u16,
     tab_state: &TabState,
-) {
+    last_cursor_pos: Option<(u16, u16)>,
+) -> Option<(u16, u16)> {
     let size = f.area();
 
     // Top-level vertical split: main content | footer
@@ -199,9 +200,11 @@ pub fn draw(
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);
 
-    // Insert/Broadcastモード時にカーソルを選択中プレビューペインの最下部に表示（IMEアンカー）
+    // Insert/Broadcastモード時にカーソルをプレビューペイン内に表示（IMEアンカー）
+    // preview_cursorがNoneの場合は前回の有効な位置(last_cursor_pos)にフォールバック
+    let effective_cursor = preview_cursor.or(last_cursor_pos);
     if matches!(input_mode, InputMode::Input | InputMode::Broadcast)
-        && let Some((cx, cy)) = preview_cursor
+        && let Some((cx, cy)) = effective_cursor
     {
         f.set_cursor_position((cx, cy));
         // ブロックカーソルだと反転セルと二重反転になり見えなくなるためバーカーソルを使用
@@ -215,6 +218,8 @@ pub fn draw(
     if show_help {
         draw_help_popup(f, size, help_scroll);
     }
+
+    effective_cursor
 }
 
 /// Build the footer spans: app name, optional vim-style mode indicator, and keybindings.
@@ -281,17 +286,14 @@ fn draw_right_panel(
 ///
 /// If `cursor_pos` is `Some`, place the cursor at the detected reverse-video cell,
 /// adjusted for scroll offset and inner area origin. Otherwise, fall back to bottom-left.
-fn compute_cursor_pos(inner: Rect, cursor_pos: Option<(u16, u16)>, scroll_y: u16) -> (u16, u16) {
-    if let Some((crow, ccol)) = cursor_pos {
-        let y = inner.y + crow.saturating_sub(scroll_y);
-        let x = inner.x + ccol;
-        (
-            x.min(inner.x + inner.width.saturating_sub(1)),
-            y.min(inner.y + inner.height.saturating_sub(1)),
-        )
-    } else {
-        (inner.x, inner.y + inner.height.saturating_sub(1))
-    }
+fn compute_cursor_pos(inner: Rect, cursor_pos: Option<(u16, u16)>, scroll_y: u16) -> Option<(u16, u16)> {
+    let (crow, ccol) = cursor_pos?;
+    let y = inner.y + crow.saturating_sub(scroll_y);
+    let x = inner.x + ccol;
+    Some((
+        x.min(inner.x + inner.width.saturating_sub(1)),
+        y.min(inner.y + inner.height.saturating_sub(1)),
+    ))
 }
 
 /// Draw one or more preview panes, splitting the area vertically.
@@ -345,7 +347,7 @@ fn draw_preview_panes(
         let inner = Block::default().borders(Borders::ALL).inner(area);
         let cursor_pos = compute_cursor_pos(inner, entry.cursor_pos, scroll_y);
         f.render_widget(preview, area);
-        return Some(cursor_pos);
+        return cursor_pos;
     }
 
     // Multiple previews: grid layout
@@ -408,7 +410,7 @@ fn draw_preview_panes(
                 .scroll((scroll_y, 0));
             if is_focused {
                 let inner = Block::default().borders(Borders::ALL).inner(cell_area);
-                cursor_pos = Some(compute_cursor_pos(inner, entry.cursor_pos, scroll_y));
+                cursor_pos = compute_cursor_pos(inner, entry.cursor_pos, scroll_y);
             }
             f.render_widget(preview, cell_area);
             idx += 1;
@@ -895,6 +897,29 @@ mod tests {
         assert_eq!(color_to_rgb(Color::Blue), (0, 0, 255));
         assert_eq!(color_to_rgb(Color::LightRed), (255, 100, 100));
         assert_eq!(color_to_rgb(Color::White), (255, 255, 255));
+    }
+
+    // --- compute_cursor_pos tests ---
+
+    #[test]
+    fn test_compute_cursor_pos_with_position() {
+        let inner = Rect::new(10, 20, 80, 40);
+        // cursor_pos is Some → returns adjusted position
+        assert_eq!(compute_cursor_pos(inner, Some((5, 3)), 0), Some((13, 25)));
+    }
+
+    #[test]
+    fn test_compute_cursor_pos_none_returns_none() {
+        let inner = Rect::new(10, 20, 80, 40);
+        // cursor_pos is None → returns None (no fallback)
+        assert_eq!(compute_cursor_pos(inner, None, 0), None);
+    }
+
+    #[test]
+    fn test_compute_cursor_pos_with_scroll() {
+        let inner = Rect::new(10, 20, 80, 40);
+        // scroll_y=3, crow=5 → y = 20 + (5-3) = 22
+        assert_eq!(compute_cursor_pos(inner, Some((5, 3)), 3), Some((13, 22)));
     }
 
     // --- pulse_bg_color tests ---

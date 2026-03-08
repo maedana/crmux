@@ -240,6 +240,8 @@ pub struct AppState {
     pub plans: Vec<crate::auto_title::PlanInfo>,
     /// Project dirs already scanned for historical plans.
     pub scanned_project_dirs: std::collections::HashSet<String>,
+    /// Last valid cursor position for IME anchor (used when capture misses the cursor).
+    pub last_cursor_pos: Option<(u16, u16)>,
 }
 
 impl AppState {
@@ -262,6 +264,7 @@ impl AppState {
             tab_state: TabState::new(),
             plans: Vec::new(),
             scanned_project_dirs: std::collections::HashSet::new(),
+            last_cursor_pos: None,
         }
     }
 

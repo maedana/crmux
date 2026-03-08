@@ -375,8 +375,10 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
 
             // Draw TUI
             let filtered: Vec<_> = state.filtered_sessions().into_iter().cloned().collect();
+            let last_cursor = state.last_cursor_pos;
+            let mut new_cursor = None;
             let frame = terminal.draw(|f| {
-                ui::draw(
+                new_cursor = ui::draw(
                     f,
                     &filtered,
                     state.selected_index,
@@ -387,8 +389,10 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     state.help_scroll,
                     state.preview_scroll,
                     &state.tab_state,
+                    last_cursor,
                 );
             })?;
+            state.last_cursor_pos = new_cursor;
 
             // Update preview_height from terminal size
             let total_preview_height = frame.area.height.saturating_sub(5);
