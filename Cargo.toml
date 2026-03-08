@@ -16,7 +16,7 @@ path = "src/main.rs"
 [dependencies]
 ratatui = { version = "0.30", features = ["crossterm_0_28"] }
 crossterm = "0.28"
-tmux-claude-state = "0.3.0"
+tmux-claude-state = "0.3.1"
 ansi-to-tui = "8"
 clap = { version = "4.5.60", features = ["derive"] }
 libc = "0.2"
