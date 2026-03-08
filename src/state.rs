@@ -80,6 +80,8 @@ pub struct ManagedSession {
     pub permission_mode: PermissionMode,
     /// Last observed mtime of the session's JSONL file (for change detection).
     pub jsonl_mtime: Option<std::time::SystemTime>,
+    /// Whether the session has ever been in the Working state.
+    pub has_worked: bool,
 }
 
 impl ManagedSession {
@@ -309,6 +311,9 @@ impl AppState {
                 existing.permission_mode = session.permission_mode.clone();
                 if existing.state != session.state {
                     state_changed.push(existing.pid);
+                    if matches!(session.state, ClaudeState::Working) {
+                        existing.has_worked = true;
+                    }
                     existing.state = session.state.clone();
                     existing.state_changed_at = session.state_changed_at;
                 }
@@ -330,6 +335,7 @@ impl AppState {
                     auto_title: None,
                     permission_mode: session.permission_mode.clone(),
                     jsonl_mtime: None,
+                    has_worked: matches!(session.state, ClaudeState::Working),
                 });
             }
         }

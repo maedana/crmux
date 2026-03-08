@@ -54,9 +54,12 @@ const SELECTED_ICON: &str = "> ";
 const TITLE_COLOR: Color = Color::Rgb(180, 180, 180);
 
 /// Determine if a session should pulse based on its state and elapsed time.
-pub fn should_pulse(state: &ClaudeState, elapsed_secs: u64) -> bool {
+/// `has_worked` indicates whether the session has ever been in the Working state;
+/// freshly launched sessions (never worked) do not pulse on Idle.
+pub fn should_pulse(state: &ClaudeState, elapsed_secs: u64, has_worked: bool) -> bool {
     matches!(state, ClaudeState::WaitingForApproval)
         || (matches!(state, ClaudeState::Idle)
+            && has_worked
             && (STALE_MIN_SECS..=STALE_MAX_SECS).contains(&elapsed_secs))
 }
 
@@ -656,7 +659,7 @@ fn draw_sessions_list(
         }
         let is_selected = idx == selected_index;
         let elapsed_secs = session.state_changed_at.elapsed().as_secs();
-        let is_pulsing = should_pulse(&session.state, elapsed_secs);
+        let is_pulsing = should_pulse(&session.state, elapsed_secs, session.has_worked);
         let color = state_color(&session.state);
         let elapsed = format_elapsed(session.state_changed_at);
         let label = state_label(&session.state);
@@ -850,31 +853,39 @@ mod tests {
 
     #[test]
     fn test_should_pulse_approval() {
-        // WaitingForApproval should always pulse regardless of elapsed time
-        assert!(should_pulse(&ClaudeState::WaitingForApproval, 0));
-        assert!(should_pulse(&ClaudeState::WaitingForApproval, 100));
+        // WaitingForApproval should always pulse regardless of elapsed time or has_worked
+        assert!(should_pulse(&ClaudeState::WaitingForApproval, 0, false));
+        assert!(should_pulse(&ClaudeState::WaitingForApproval, 100, true));
     }
 
     #[test]
-    fn test_should_pulse_idle_stale() {
-        // Idle within STALE_MIN_SECS..=STALE_MAX_SECS should pulse
-        assert!(should_pulse(&ClaudeState::Idle, 5));
-        assert!(should_pulse(&ClaudeState::Idle, 10));
-        assert!(should_pulse(&ClaudeState::Idle, 15));
+    fn test_should_pulse_idle_stale_after_work() {
+        // Idle within STALE_MIN_SECS..=STALE_MAX_SECS should pulse only if has_worked
+        assert!(should_pulse(&ClaudeState::Idle, 5, true));
+        assert!(should_pulse(&ClaudeState::Idle, 10, true));
+        assert!(should_pulse(&ClaudeState::Idle, 15, true));
+    }
+
+    #[test]
+    fn test_should_pulse_idle_stale_never_worked() {
+        // Idle within stale range but never worked — should NOT pulse
+        assert!(!should_pulse(&ClaudeState::Idle, 5, false));
+        assert!(!should_pulse(&ClaudeState::Idle, 10, false));
+        assert!(!should_pulse(&ClaudeState::Idle, 15, false));
     }
 
     #[test]
     fn test_should_pulse_idle_not_stale() {
-        // Idle outside the stale range should NOT pulse
-        assert!(!should_pulse(&ClaudeState::Idle, 4));
-        assert!(!should_pulse(&ClaudeState::Idle, 16));
+        // Idle outside the stale range should NOT pulse even if has_worked
+        assert!(!should_pulse(&ClaudeState::Idle, 4, true));
+        assert!(!should_pulse(&ClaudeState::Idle, 16, true));
     }
 
     #[test]
     fn test_should_pulse_working() {
         // Working should never pulse
-        assert!(!should_pulse(&ClaudeState::Working, 0));
-        assert!(!should_pulse(&ClaudeState::Working, 10));
+        assert!(!should_pulse(&ClaudeState::Working, 0, false));
+        assert!(!should_pulse(&ClaudeState::Working, 10, true));
     }
 
     // --- color_to_rgb tests ---
