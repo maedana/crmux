@@ -1,0 +1,11 @@
+#!/bin/bash
+set -euo pipefail
+
+project="${1:?Usage: crmux-plan-search <project>}"
+
+export _CRMUX_PLANS
+_CRMUX_PLANS=$(echo "{\"project\":\"$project\"}" | crmux rpc get-plans | jq -r '.plans[].path')
+
+echo "$_CRMUX_PLANS" | fzf --disabled --preview 'cat {}' \
+    --bind 'change:reload:echo "$_CRMUX_PLANS" | xargs rg -l {q} 2>/dev/null || echo "$_CRMUX_PLANS"' \
+    | xargs -I{} sh -c 'echo "{\"text\": \"{}\", \"no_execute\": true}" | crmux rpc send-text'

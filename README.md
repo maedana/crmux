@@ -154,6 +154,26 @@ echo '{"text": "draft prompt", "project": "crmux", "no_execute": true}' | crmux 
 - `project` (optional): Target an idle session whose project name starts with this value
 - `no_execute` (optional): If `true`, paste text without pressing Enter
 
+## Helper Scripts
+
+### crmux-plan-search
+
+Incrementally search plan files for a project with fzf and send the selected path to crmux.
+
+**Requirements:** `fzf`, `rg`, `jq`
+
+**Install:**
+
+```sh
+cp scripts/crmux-plan-search ~/.local/bin/
+```
+
+**Usage:**
+
+```sh
+crmux-plan-search <project>
+```
+
 ## Roadmap
 
 - Display worktree info per session
