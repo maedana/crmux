@@ -516,6 +516,7 @@ mod tests {
             git_branch: None,
             auto_title: None,
             permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
+            jsonl_mtime: None,
         });
         state
     }
@@ -904,6 +905,7 @@ mod tests {
             git_branch: None,
             auto_title: None,
             permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
+            jsonl_mtime: None,
         });
         state.sessions.push(ManagedSession {
             pid: 200,
@@ -920,6 +922,7 @@ mod tests {
             git_branch: None,
             auto_title: None,
             permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
+            jsonl_mtime: None,
         });
         state.sessions.push(ManagedSession {
             pid: 300,
@@ -936,6 +939,7 @@ mod tests {
             git_branch: None,
             auto_title: None,
             permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
+            jsonl_mtime: None,
         });
         state
     }
@@ -1459,6 +1463,7 @@ mod tests {
                 git_branch: None,
                 auto_title: None,
                 permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
+                jsonl_mtime: None,
             });
         }
         state.tab_state.rebuild_tabs(&state.sessions);

@@ -23,6 +23,13 @@ fn resolve_git_branch(cwd: &str) -> Option<String> {
     }
 }
 
+/// Build the path to a session's JSONL file: `~/.claude/projects/<project_dir>/<session_id>.jsonl`
+fn jsonl_path(cwd: &str, session_id: &str) -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let project_dir = crate::auto_title::cwd_to_project_dir(cwd);
+    Some(format!("{home}/.claude/projects/{project_dir}/{session_id}.jsonl"))
+}
+
 /// Calculate the number of Shift+Tab presses needed to switch from `current` to `target_mode`.
 /// Mode cycle: Ask(0) → Auto Edit(1) → Plan(2) → Ask(0)...
 /// Returns 0 if target_mode is unknown or already matches current.
@@ -71,6 +78,8 @@ pub struct ManagedSession {
     pub auto_title: Option<String>,
     /// Current permission mode (Ask / Auto Edit / Plan).
     pub permission_mode: PermissionMode,
+    /// Last observed mtime of the session's JSONL file (for change detection).
+    pub jsonl_mtime: Option<std::time::SystemTime>,
 }
 
 impl ManagedSession {
@@ -320,6 +329,7 @@ impl AppState {
                     git_branch: None,
                     auto_title: None,
                     permission_mode: session.permission_mode.clone(),
+                    jsonl_mtime: None,
                 });
             }
         }
@@ -481,6 +491,18 @@ impl AppState {
                 continue;
             }
             if let (Some(session_id), cwd) = (&session.session_id, &session.cwd) {
+                // Skip if the JSONL file's mtime hasn't changed since last read
+                if let Some(path) = jsonl_path(cwd, session_id) {
+                    if let Ok(meta) = std::fs::metadata(&path) {
+                        if let Ok(mtime) = meta.modified() {
+                            if session.jsonl_mtime == Some(mtime) {
+                                continue;
+                            }
+                            session.jsonl_mtime = Some(mtime);
+                        }
+                    }
+                }
+
                 session.auto_title =
                     crate::auto_title::resolve_auto_title(cwd, session_id);
 
@@ -605,6 +627,7 @@ impl AppState {
             "session_start" => {
                 session.session_id =
                     msg.params.get("session_id").and_then(|v| v.as_str()).map(String::from);
+                session.jsonl_mtime = None;
                 session.model =
                     msg.params.get("model").and_then(|v| v.as_str()).map(String::from);
             }
@@ -616,6 +639,7 @@ impl AppState {
                         .get("session_id")
                         .and_then(|v| v.as_str())
                         .map(String::from);
+                    session.jsonl_mtime = None;
                 }
                 // Extract model.display_name from nested JSON
                 if let Some(display_name) = msg
@@ -2448,5 +2472,171 @@ mod tests {
         // (even though the dir doesn't exist, the point is it won't even try)
         app.load_historical_plans("/work/myproject", "myproject");
         assert!(app.plans.is_empty());
+    }
+
+    // --- mtime-based change detection ---
+
+    #[test]
+    fn test_refresh_auto_titles_skips_when_mtime_unchanged() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].session_id = Some("test-session".to_string());
+
+        // Create a temp JSONL file so mtime can be read
+        let tmpdir = tempfile::tempdir().unwrap();
+        let cwd = tmpdir.path().to_str().unwrap().to_string();
+        app.sessions[0].cwd = cwd.clone();
+        let project_dir = crate::auto_title::cwd_to_project_dir(&cwd);
+        app.scanned_project_dirs.insert(project_dir.clone());
+
+        let home = std::env::var("HOME").unwrap();
+        let jsonl_dir = format!("{home}/.claude/projects/{project_dir}");
+        std::fs::create_dir_all(&jsonl_dir).unwrap();
+        let jsonl_file = format!("{jsonl_dir}/test-session.jsonl");
+        std::fs::write(&jsonl_file, "{}\n").unwrap();
+
+        // First call: should read and set mtime
+        app.refresh_auto_titles();
+        assert!(app.sessions[0].jsonl_mtime.is_some());
+        let first_mtime = app.sessions[0].jsonl_mtime;
+
+        // Set a sentinel auto_title to verify it's NOT re-resolved
+        app.sessions[0].auto_title = Some("sentinel".to_string());
+
+        // Second call: mtime unchanged, should skip (auto_title stays as sentinel)
+        app.refresh_auto_titles();
+        assert_eq!(app.sessions[0].auto_title, Some("sentinel".to_string()));
+        assert_eq!(app.sessions[0].jsonl_mtime, first_mtime);
+
+        // Cleanup
+        let _ = std::fs::remove_file(&jsonl_file);
+        let _ = std::fs::remove_dir(&jsonl_dir);
+    }
+
+    #[test]
+    fn test_refresh_auto_titles_reads_when_mtime_is_none() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].session_id = Some("test-session-none".to_string());
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let cwd = tmpdir.path().to_str().unwrap().to_string();
+        app.sessions[0].cwd = cwd.clone();
+        let project_dir = crate::auto_title::cwd_to_project_dir(&cwd);
+        app.scanned_project_dirs.insert(project_dir.clone());
+
+        let home = std::env::var("HOME").unwrap();
+        let jsonl_dir = format!("{home}/.claude/projects/{project_dir}");
+        std::fs::create_dir_all(&jsonl_dir).unwrap();
+        let jsonl_file = format!("{jsonl_dir}/test-session-none.jsonl");
+        std::fs::write(&jsonl_file, "{}\n").unwrap();
+
+        // jsonl_mtime is None initially
+        assert!(app.sessions[0].jsonl_mtime.is_none());
+
+        // Should read the file and set mtime
+        app.refresh_auto_titles();
+        assert!(app.sessions[0].jsonl_mtime.is_some());
+
+        // Cleanup
+        let _ = std::fs::remove_file(&jsonl_file);
+        let _ = std::fs::remove_dir(&jsonl_dir);
+    }
+
+    #[test]
+    fn test_refresh_auto_titles_re_reads_after_file_change() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].session_id = Some("test-session-change".to_string());
+
+        let tmpdir = tempfile::tempdir().unwrap();
+        let cwd = tmpdir.path().to_str().unwrap().to_string();
+        app.sessions[0].cwd = cwd.clone();
+        let project_dir = crate::auto_title::cwd_to_project_dir(&cwd);
+        app.scanned_project_dirs.insert(project_dir.clone());
+
+        let home = std::env::var("HOME").unwrap();
+        let jsonl_dir = format!("{home}/.claude/projects/{project_dir}");
+        std::fs::create_dir_all(&jsonl_dir).unwrap();
+        let jsonl_file = format!("{jsonl_dir}/test-session-change.jsonl");
+        std::fs::write(&jsonl_file, "{}\n").unwrap();
+
+        // First call
+        app.refresh_auto_titles();
+        let first_mtime = app.sessions[0].jsonl_mtime;
+        app.sessions[0].auto_title = Some("sentinel".to_string());
+
+        // Modify the file (sleep briefly to ensure mtime changes)
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::fs::write(&jsonl_file, "{}\n{}\n").unwrap();
+
+        // Second call: mtime changed, should re-read (auto_title will be re-resolved)
+        app.refresh_auto_titles();
+        assert_ne!(app.sessions[0].jsonl_mtime, first_mtime);
+        // auto_title should have been re-resolved (overwritten from sentinel)
+        assert_ne!(app.sessions[0].auto_title, Some("sentinel".to_string()));
+
+        // Cleanup
+        let _ = std::fs::remove_file(&jsonl_file);
+        let _ = std::fs::remove_dir(&jsonl_dir);
+    }
+
+    #[test]
+    fn test_session_start_resets_jsonl_mtime() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Set a non-None mtime
+        app.sessions[0].jsonl_mtime = Some(std::time::SystemTime::UNIX_EPOCH);
+
+        let msg = crate::rpc::RpcMessage {
+            method: "session_start".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "new-session-id",
+                "model": "claude-3"
+            }),
+        };
+        app.handle_rpc_message(&msg);
+
+        assert_eq!(app.sessions[0].session_id, Some("new-session-id".to_string()));
+        assert_eq!(app.sessions[0].jsonl_mtime, None);
+    }
+
+    #[test]
+    fn test_status_update_first_session_id_resets_jsonl_mtime() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // session_id is None, set a non-None mtime
+        app.sessions[0].jsonl_mtime = Some(std::time::SystemTime::UNIX_EPOCH);
+
+        let msg = crate::rpc::RpcMessage {
+            method: "status_update".to_string(),
+            params: serde_json::json!({
+                "pane_id": "%1",
+                "session_id": "first-session-id",
+                "context_window": { "used_percentage": 42 }
+            }),
+        };
+        app.handle_rpc_message(&msg);
+
+        assert_eq!(app.sessions[0].session_id, Some("first-session-id".to_string()));
+        assert_eq!(app.sessions[0].jsonl_mtime, None);
     }
 }
