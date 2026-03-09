@@ -707,9 +707,10 @@ fn draw_sessions_list(
 
         let mut status_spans = Vec::new();
         if let Some(ref model) = session.model {
+            let compact_model = model.replace(' ', "");
             let model_text = session.context_percent.map_or_else(
-                || model.clone(),
-                |pct| format!("{model} ({pct}%)"),
+                || compact_model.clone(),
+                |pct| format!("{compact_model}({pct}%)"),
             );
             status_spans.push(Span::styled(
                 model_text,
