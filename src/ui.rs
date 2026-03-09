@@ -141,17 +141,6 @@ pub const fn state_label(state: &ClaudeState) -> &'static str {
     }
 }
 
-/// Truncate a title string to `max_chars` characters, appending `…` if truncated.
-fn truncate_title(s: &str, max_chars: usize) -> String {
-    let char_count = s.chars().count();
-    if char_count <= max_chars {
-        s.to_string()
-    } else {
-        let truncated: String = s.chars().take(max_chars - 1).collect();
-        format!("{truncated}…")
-    }
-}
-
 /// Format a preview pane title: "{name} (branch/worktree) - {title}".
 fn preview_title(name: &str, pane_id: &str, title: Option<&String>, git_branch: Option<&String>, worktree_name: Option<&String>) -> String {
     let suffix = match title {
@@ -695,32 +684,17 @@ fn draw_sessions_list(
             (None, None) => String::new(),
         };
 
-        // Truncate combined title to fit within card width (minus borders)
-        let max_title_chars = layout[idx].width.saturating_sub(2) as usize;
-        let full_title = format!("{project_part}{branch_part}");
-        let truncated = truncate_title(&full_title, max_title_chars);
-
-        // Split truncated text back into project and branch spans
-        let project_title = if truncated == full_title {
-            // Not truncated: preserve color split
-            let mut title_spans = vec![Span::styled(
-                project_part,
-                Style::default().fg(text_color).add_modifier(Modifier::BOLD),
-            )];
-            if !branch_part.is_empty() {
-                title_spans.push(Span::styled(
-                    branch_part,
-                    Style::default().fg(BRANCH_COLOR),
-                ));
-            }
-            Line::from(title_spans)
-        } else {
-            // Was truncated: use single span
-            Line::from(vec![Span::styled(
-                truncated,
-                Style::default().fg(text_color).add_modifier(Modifier::BOLD),
-            )])
-        };
+        let mut title_spans = vec![Span::styled(
+            project_part,
+            Style::default().fg(text_color).add_modifier(Modifier::BOLD),
+        )];
+        if !branch_part.is_empty() {
+            title_spans.push(Span::styled(
+                branch_part,
+                Style::default().fg(BRANCH_COLOR),
+            ));
+        }
+        let project_title = Line::from(title_spans);
 
         let mark_span = Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
 
@@ -751,22 +725,19 @@ fn draw_sessions_list(
         let status_line = Line::from(status_spans);
         let is_editing_title = is_selected && input_mode == InputMode::Title;
         let combined_line = if is_editing_title {
-            let max_width = layout[idx].width.saturating_sub(4) as usize; // borders + mark
             let (display_text, text_color) = if input_buffer.is_empty() {
                 ("Type a title".to_string(), PLACEHOLDER_COLOR)
             } else {
-                (truncate_title(input_buffer, max_width), Color::Yellow)
+                (input_buffer.to_string(), Color::Yellow)
             };
             Line::from(vec![
                 mark_span,
                 Span::styled(display_text, Style::default().fg(text_color)),
             ])
         } else if let Some(display) = session.display_title() {
-            let max_width = layout[idx].width.saturating_sub(4) as usize; // borders + mark
-            let truncated = truncate_title(display, max_width);
             Line::from(vec![
                 mark_span,
-                Span::styled(truncated, Style::default().fg(TITLE_COLOR)),
+                Span::styled(display, Style::default().fg(TITLE_COLOR)),
             ])
         } else {
             Line::from(vec![
@@ -1055,35 +1026,7 @@ mod tests {
         assert!(text.contains("-- TITLE --"));
     }
 
-    // --- truncate_title tests ---
-
-    #[test]
-    fn test_truncate_short_title() {
-        assert_eq!(truncate_title("short", 20), "short");
-    }
-
-    #[test]
-    fn test_truncate_exact_length() {
-        assert_eq!(truncate_title("abcde", 5), "abcde");
-    }
-
-    #[test]
-    fn test_truncate_long_title() {
-        assert_eq!(truncate_title("abcdef", 5), "abcd…");
-    }
-
-    #[test]
-    fn test_truncate_multibyte() {
-        // UTF-8 safe: "あいう" is 3 chars
-        assert_eq!(truncate_title("あいうえお", 4), "あいう…");
-    }
-
-    #[test]
-    fn test_truncate_empty() {
-        assert_eq!(truncate_title("", 10), "");
-    }
-
-    #[test]
+#[test]
     fn test_footer_normal_mode_contains_help_key() {
         let spans = footer_spans(InputMode::Normal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
