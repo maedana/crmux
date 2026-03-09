@@ -168,8 +168,7 @@ pub fn draw(
     help_scroll: u16,
     preview_scroll: u16,
     tab_state: &TabState,
-    last_cursor_pos: Option<(u16, u16)>,
-) -> Option<(u16, u16)> {
+) {
     let size = f.area();
 
     // Top-level vertical split: main content | footer
@@ -201,10 +200,8 @@ pub fn draw(
     f.render_widget(instructions, v_chunks[1]);
 
     // Insert/Broadcastモード時にカーソルをプレビューペイン内に表示（IMEアンカー）
-    // preview_cursorがNoneの場合は前回の有効な位置(last_cursor_pos)にフォールバック
-    let effective_cursor = preview_cursor.or(last_cursor_pos);
     if matches!(input_mode, InputMode::Input | InputMode::Broadcast)
-        && let Some((cx, cy)) = effective_cursor
+        && let Some((cx, cy)) = preview_cursor
     {
         f.set_cursor_position((cx, cy));
         // ブロックカーソルだと反転セルと二重反転になり見えなくなるためバーカーソルを使用
@@ -218,8 +215,6 @@ pub fn draw(
     if show_help {
         draw_help_popup(f, size, help_scroll);
     }
-
-    effective_cursor
 }
 
 /// Build the footer spans: app name, optional vim-style mode indicator, and keybindings.
