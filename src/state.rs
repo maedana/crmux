@@ -185,6 +185,10 @@ pub struct PreviewEntry {
     pub pane_id: String,
     /// Optional session title label.
     pub title: Option<String>,
+    /// Git branch name.
+    pub git_branch: Option<String>,
+    /// Worktree name.
+    pub worktree_name: Option<String>,
     /// Captured pane content.
     pub content: String,
     /// Cursor position (row, col) detected from reverse-video cell in captured content.
@@ -951,6 +955,8 @@ mod tests {
             name: "crmux".to_string(),
             pane_id: "%1".to_string(),
             title: Some("development".to_string()),
+            git_branch: None,
+            worktree_name: None,
             content: "hello".to_string(),
             cursor_pos: None,
         };
@@ -964,6 +970,8 @@ mod tests {
             name: "crmux".to_string(),
             pane_id: "%1".to_string(),
             title: None,
+            git_branch: None,
+            worktree_name: None,
             content: "hello".to_string(),
             cursor_pos: None,
         };

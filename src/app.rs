@@ -381,6 +381,8 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         name: session.project_name.clone(),
                         pane_id: session.pane_id.clone(),
                         title: session.display_title().map(String::from),
+                        git_branch: session.git_branch.clone(),
+                        worktree_name: session.worktree_name.clone(),
                         content,
                         cursor_pos,
                     }];
@@ -407,6 +409,8 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                             name: s.project_name.clone(),
                             pane_id: s.pane_id.clone(),
                             title: s.display_title().map(String::from),
+                            git_branch: s.git_branch.clone(),
+                            worktree_name: s.worktree_name.clone(),
                             content,
                             cursor_pos,
                         }
