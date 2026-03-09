@@ -52,6 +52,12 @@ fn grid_row_items(n: usize, cols: usize) -> Vec<usize> {
 
 const SELECTED_ICON: &str = "> ";
 const TITLE_COLOR: Color = Color::Rgb(180, 180, 180);
+const TAB_INACTIVE_COLOR: Color = TITLE_COLOR;
+const TAB_ARROW_COLOR: Color = TITLE_COLOR;
+const EMPTY_MESSAGE_COLOR: Color = TITLE_COLOR;
+const BRANCH_COLOR: Color = TITLE_COLOR;
+const MODEL_COLOR: Color = TITLE_COLOR;
+const PLACEHOLDER_COLOR: Color = TITLE_COLOR;
 
 /// Determine if a session should pulse based on its state and elapsed time.
 /// `has_worked` indicates whether the session has ever been in the Working state;
@@ -454,7 +460,7 @@ fn draw_tab_bar(f: &mut ratatui::Frame, tab_state: &TabState, area: Rect) {
             let style = if i == tab_state.selected_tab {
                 Style::default().add_modifier(Modifier::REVERSED)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(TAB_INACTIVE_COLOR)
             };
             spans.push(Span::styled(label.clone(), style));
         }
@@ -484,7 +490,7 @@ fn draw_tab_bar(f: &mut ratatui::Frame, tab_state: &TabState, area: Rect) {
         let effective_end = if has_right { view_end - 2 } else { view_end };
 
         if has_left {
-            spans.push(Span::styled("< ", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled("< ", Style::default().fg(TAB_ARROW_COLOR)));
         }
 
         for (i, label) in labels.iter().enumerate() {
@@ -500,7 +506,7 @@ fn draw_tab_bar(f: &mut ratatui::Frame, tab_state: &TabState, area: Rect) {
                 let style = if i == tab_state.selected_tab {
                     Style::default().add_modifier(Modifier::REVERSED)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(TAB_INACTIVE_COLOR)
                 };
                 // Truncate label if partially visible
                 let label_start = effective_start.saturating_sub(start);
@@ -513,7 +519,7 @@ fn draw_tab_bar(f: &mut ratatui::Frame, tab_state: &TabState, area: Rect) {
         }
 
         if has_right {
-            spans.push(Span::styled(" >", Style::default().fg(Color::DarkGray)));
+            spans.push(Span::styled(" >", Style::default().fg(TAB_ARROW_COLOR)));
         }
     }
 
@@ -638,7 +644,7 @@ fn draw_sessions_list(
 
     if sessions.is_empty() {
         let empty_msg = Paragraph::new("No Claude sessions detected")
-            .style(Style::default().fg(Color::DarkGray));
+            .style(Style::default().fg(EMPTY_MESSAGE_COLOR));
         f.render_widget(empty_msg, inner_area);
         return;
     }
@@ -681,19 +687,18 @@ fn draw_sessions_list(
             ),
         ];
         if let Some(ref branch) = session.git_branch {
-            let branch_display = if let Some(ref wt) = session.worktree_name {
-                format!(" ({branch}/{wt})")
-            } else {
-                format!(" ({branch})")
-            };
+            let branch_display = session.worktree_name.as_ref().map_or_else(
+                || format!(" ({branch})"),
+                |wt| format!(" ({branch}/{wt})"),
+            );
             title_spans.push(Span::styled(
                 branch_display,
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(BRANCH_COLOR),
             ));
         } else if let Some(ref wt) = session.worktree_name {
             title_spans.push(Span::styled(
                 format!(" ({wt})"),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(BRANCH_COLOR),
             ));
         }
         let project_title = Line::from(title_spans);
@@ -708,7 +713,7 @@ fn draw_sessions_list(
             );
             status_spans.push(Span::styled(
                 model_text,
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(MODEL_COLOR),
             ));
             status_spans.push(Span::raw(" "));
         }
@@ -728,7 +733,7 @@ fn draw_sessions_list(
         let combined_line = if is_editing_title {
             let max_width = layout[idx].width.saturating_sub(4) as usize; // borders + mark
             let (display_text, text_color) = if input_buffer.is_empty() {
-                ("Type a title".to_string(), Color::DarkGray)
+                ("Type a title".to_string(), PLACEHOLDER_COLOR)
             } else {
                 (truncate_title(input_buffer, max_width), Color::Yellow)
             };
