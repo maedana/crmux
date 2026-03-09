@@ -201,15 +201,15 @@ pub fn draw(
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);
 
-    // Insert/Broadcastモード時にカーソルをプレビューペイン内に表示（IMEアンカー）
+    // Show cursor inside preview pane in Insert/Broadcast mode (IME anchor)
     if matches!(input_mode, InputMode::Input | InputMode::Broadcast)
         && let Some((cx, cy)) = preview_cursor
     {
         f.set_cursor_position((cx, cy));
-        // ブロックカーソルだと反転セルと二重反転になり見えなくなるためバーカーソルを使用
+        // Use bar cursor because block cursor double-inverts the reverse-video cell and becomes invisible
         crossterm::execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::SteadyBar).ok();
     } else {
-        // Normalモード復帰時にカーソル形状をデフォルトに戻す
+        // Reset cursor shape to default when returning to Normal mode
         crossterm::execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::DefaultUserShape).ok();
     }
 
@@ -1099,43 +1099,43 @@ mod tests {
 
     #[test]
     fn test_compute_grid_single_pane() {
-        // 1ペインは常に (1, 1)
+        // 1 pane is always (1, 1)
         assert_eq!(compute_grid(1, 200, MIN_PANE_WIDTH), (1, 1));
     }
 
     #[test]
     fn test_compute_grid_horizontal_fit() {
-        // 幅160で2ペイン → 横並び (2cols, 1row)
+        // width 160, 2 panes → side by side (2cols, 1row)
         assert_eq!(compute_grid(2, 160, MIN_PANE_WIDTH), (2, 1));
     }
 
     #[test]
     fn test_compute_grid_grid_layout() {
-        // 幅160で4ペイン → 2x2グリッド
+        // width 160, 4 panes → 2x2 grid
         assert_eq!(compute_grid(4, 160, MIN_PANE_WIDTH), (2, 2));
     }
 
     #[test]
     fn test_compute_grid_wide_screen() {
-        // 幅320で4ペイン → 全て横並び (4cols, 1row)
+        // width 320, 4 panes → all side by side (4cols, 1row)
         assert_eq!(compute_grid(4, 320, MIN_PANE_WIDTH), (4, 1));
     }
 
     #[test]
     fn test_compute_grid_narrow_screen() {
-        // 幅79で3ペイン → 全て縦積み (1col, 3rows)
+        // width 79, 3 panes → all stacked (1col, 3rows)
         assert_eq!(compute_grid(3, 79, MIN_PANE_WIDTH), (1, 3));
     }
 
     #[test]
     fn test_compute_grid_boundary_exact() {
-        // 幅80で1ペイン → (1, 1)
+        // width 80, 1 pane → (1, 1)
         assert_eq!(compute_grid(1, 80, MIN_PANE_WIDTH), (1, 1));
     }
 
     #[test]
     fn test_compute_grid_boundary_two_panes() {
-        // 幅160でちょうど2列
+        // width 160, exactly 2 columns
         assert_eq!(compute_grid(3, 160, MIN_PANE_WIDTH), (2, 2));
     }
 
@@ -1148,31 +1148,31 @@ mod tests {
 
     #[test]
     fn test_grid_row_items_even_split() {
-        // 4ペイン2列 → [2, 2]
+        // 4 panes, 2 cols → [2, 2]
         assert_eq!(grid_row_items(4, 2), vec![2, 2]);
     }
 
     #[test]
     fn test_grid_row_items_remainder() {
-        // 3ペイン2列 → [2, 1]
+        // 3 panes, 2 cols → [2, 1]
         assert_eq!(grid_row_items(3, 2), vec![2, 1]);
     }
 
     #[test]
     fn test_grid_row_items_single_column() {
-        // 3ペイン1列 → [1, 1, 1]
+        // 3 panes, 1 col → [1, 1, 1]
         assert_eq!(grid_row_items(3, 1), vec![1, 1, 1]);
     }
 
     #[test]
     fn test_grid_row_items_all_in_one_row() {
-        // 3ペイン3列 → [3]
+        // 3 panes, 3 cols → [3]
         assert_eq!(grid_row_items(3, 3), vec![3]);
     }
 
     #[test]
     fn test_grid_row_items_5_panes_3_cols() {
-        // 5ペイン3列 → [3, 2]
+        // 5 panes, 3 cols → [3, 2]
         assert_eq!(grid_row_items(5, 3), vec![3, 2]);
     }
 
