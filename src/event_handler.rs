@@ -4,6 +4,12 @@ use std::process::{Command, Stdio};
 
 use crate::state::{AppState, InputMode};
 
+/// Deactivate IME (fcitx5) so that Normal-mode keybindings work immediately.
+/// Silently ignored when fcitx5 is not installed.
+fn ime_off() {
+    Command::new("fcitx5-remote").arg("-c").status().ok();
+}
+
 /// Action to take after handling a keyboard event.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Action {
@@ -197,6 +203,7 @@ fn handle_input_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppStat
     if code == KeyCode::Esc {
         state.esc_source_mode = Some(InputMode::Input);
         state.input_mode = InputMode::Normal;
+        ime_off();
     } else {
         // All other keys are forwarded to the tmux pane immediately
         send_key_to_pane(code, modifiers, state);
@@ -208,6 +215,7 @@ fn handle_broadcast_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut App
     if code == KeyCode::Esc {
         state.esc_source_mode = Some(InputMode::Broadcast);
         state.input_mode = InputMode::Normal;
+        ime_off();
     } else {
         send_key_to_marked_panes(code, modifiers, state);
     }
@@ -375,6 +383,7 @@ fn save_title(state: &mut AppState) {
     }
     state.input_buffer.clear();
     state.input_mode = InputMode::Normal;
+    ime_off();
 }
 
 /// Handle a paste event by forwarding pasted text to the appropriate tmux pane(s).
