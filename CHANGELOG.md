@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
 
 ### Added
 - Display git diff info (insertions/deletions) in preview title with GitHub-style colors
