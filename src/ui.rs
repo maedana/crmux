@@ -117,8 +117,8 @@ pub fn format_elapsed(since: Instant) -> String {
 /// Map a `ClaudeState` to a display color.
 pub const fn state_color(state: &ClaudeState) -> Color {
     match state {
-        ClaudeState::Working => Color::Blue,
-        ClaudeState::WaitingForApproval => Color::LightRed,
+        ClaudeState::Working => Color::Green,
+        ClaudeState::WaitingForApproval => Color::Rgb(255, 165, 0),
         ClaudeState::Idle => Color::White,
     }
 }
@@ -834,10 +834,10 @@ mod tests {
 
     #[test]
     fn test_state_color() {
-        assert_eq!(state_color(&ClaudeState::Working), Color::Blue);
+        assert_eq!(state_color(&ClaudeState::Working), Color::Green);
         assert_eq!(
             state_color(&ClaudeState::WaitingForApproval),
-            Color::LightRed
+            Color::Rgb(255, 165, 0)
         );
         assert_eq!(state_color(&ClaudeState::Idle), Color::White);
     }
