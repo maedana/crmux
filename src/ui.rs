@@ -299,15 +299,15 @@ fn compute_cursor_pos(inner: Rect, cursor_pos: Option<(u16, u16)>, scroll_y: u16
 #[allow(clippy::too_many_lines)]
 /// Convert `GitDiffInfo` to a colored `Line` for title_bottom display.
 /// GitHub-style colors: green for additions/staged, yellow for modified, red for deletions.
-fn git_diff_line(info: &crate::state::GitDiffInfo) -> Option<Line<'static>> {
-    let text = info.display();
-    if text.is_empty() {
-        return None;
-    }
+fn git_diff_line(info: &crate::state::GitDiffInfo) -> Line<'static> {
     let green = Style::default().fg(Color::Rgb(63, 185, 80));
     let yellow = Style::default().fg(Color::Rgb(210, 153, 34));
     let red = Style::default().fg(Color::Rgb(248, 81, 73));
     let gray = Style::default().fg(Color::Gray);
+
+    if info.staged_files == 0 && info.modified_files == 0 {
+        return Line::from(vec![Span::styled(" no changes ", gray)]).right_aligned();
+    }
 
     let mut spans = vec![Span::styled(" ", gray)];
     if info.staged_files > 0 {
@@ -324,7 +324,7 @@ fn git_diff_line(info: &crate::state::GitDiffInfo) -> Option<Line<'static>> {
     spans.push(Span::styled(format!("-{}", info.deletions), red));
     spans.push(Span::styled(") ", gray));
 
-    Some(Line::from(spans).right_aligned())
+    Line::from(spans).right_aligned()
 }
 
 fn draw_preview_panes(
@@ -367,8 +367,8 @@ fn draw_preview_panes(
             .title(format!("{SELECTED_ICON}{title}"))
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Gray));
-        if let Some(line) = entry.git_diff.as_ref().and_then(git_diff_line) {
-            block = block.title_bottom(line);
+        if let Some(info) = entry.git_diff.as_ref() {
+            block = block.title_bottom(git_diff_line(info));
         }
         let preview = Paragraph::new(preview_text)
             .block(block)
@@ -433,8 +433,8 @@ fn draw_preview_panes(
                 .title(format!("{title_prefix}{title}"))
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(Color::Gray));
-            if let Some(diff_text) = entry.git_diff.as_ref().map(|d| d.display()).filter(|s| !s.is_empty()) {
-                block = block.title_bottom(Line::from(format!(" {diff_text} ")).right_aligned());
+            if let Some(info) = entry.git_diff.as_ref() {
+                block = block.title_bottom(git_diff_line(info));
             }
             let preview = Paragraph::new(preview_text)
                 .block(block)

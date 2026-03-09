@@ -115,24 +115,6 @@ pub struct GitDiffInfo {
     pub deletions: usize,
 }
 
-impl GitDiffInfo {
-    /// Format as display string: `+3 ~5 (+42 -15)`
-    /// Returns empty string if no changes.
-    pub fn display(&self) -> String {
-        if self.staged_files == 0 && self.modified_files == 0 {
-            return String::new();
-        }
-        let mut parts = Vec::new();
-        if self.staged_files > 0 {
-            parts.push(format!("+{}", self.staged_files));
-        }
-        if self.modified_files > 0 {
-            parts.push(format!("~{}", self.modified_files));
-        }
-        parts.push(format!("(+{} -{})", self.insertions, self.deletions));
-        parts.join(" ")
-    }
-}
 
 /// A Claude Code session managed by crmux, tracked by PID.
 #[derive(Debug, Clone)]
@@ -2754,41 +2736,6 @@ mod tests {
         assert_eq!(app.sessions[0].jsonl_mtime, None);
     }
 
-    // --- GitDiffInfo display ---
-
-    #[test]
-    fn test_git_diff_info_display_all_fields() {
-        let info = GitDiffInfo {
-            staged_files: 3,
-            modified_files: 5,
-            insertions: 42,
-            deletions: 15,
-        };
-        assert_eq!(info.display(), "+3 ~5 (+42 -15)");
-    }
-
-    #[test]
-    fn test_git_diff_info_display_staged_only() {
-        let info = GitDiffInfo {
-            staged_files: 2,
-            modified_files: 0,
-            insertions: 10,
-            deletions: 0,
-        };
-        assert_eq!(info.display(), "+2 (+10 -0)");
-    }
-
-    #[test]
-    fn test_git_diff_info_display_modified_only() {
-        let info = GitDiffInfo {
-            staged_files: 0,
-            modified_files: 3,
-            insertions: 0,
-            deletions: 7,
-        };
-        assert_eq!(info.display(), "~3 (+0 -7)");
-    }
-
     #[test]
     fn test_parse_numstat_normal() {
         let output = b"10\t5\tsrc/main.rs\n3\t0\tsrc/lib.rs\n";
@@ -2815,14 +2762,4 @@ mod tests {
         assert_eq!(del, 0);
     }
 
-    #[test]
-    fn test_git_diff_info_display_no_changes() {
-        let info = GitDiffInfo {
-            staged_files: 0,
-            modified_files: 0,
-            insertions: 0,
-            deletions: 0,
-        };
-        assert_eq!(info.display(), "");
-    }
 }
