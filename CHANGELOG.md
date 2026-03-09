@@ -2,11 +2,20 @@
 
 ## Unreleased
 
-### Changed
-- Use tmux `cursor_x`/`cursor_y` for IME anchor position instead of ANSI reverse-video cell detection
+### Added
+- Display git diff info (insertions/deletions) in preview title with GitHub-style colors
+- Extract slash command name from auto title prompt
+- Display worktree name in sidebar session list
+- Auto-disable IME (fcitx5) on Normal mode return
 
 ### Fixed
-- Skip idle pulse notification for freshly launched sessions (only pulse after task completion)
+- Handle compound SGR parameters in reverse-video cursor detection
+
+### Changed
+- State colors: green for Running, orange for Approval
+- Compact model name display by removing spaces and parenthesis padding
+- Use tmux-claude-state 0.4.0 from crates.io
+- Replace DarkGray with named color constants for sidebar elements
 
 ## 0.11.0
 
