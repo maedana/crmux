@@ -57,28 +57,71 @@ fn capture_pane_content(pane_id: &str, scrollback_lines: Option<u16>) -> String 
     strip_osc8_hyperlinks(&raw).trim_end().to_string()
 }
 
-/// Query cursor position directly from tmux using `cursor_x` and `cursor_y` format variables.
+/// Detect cursor position from reverse-video cell in ANSI content.
 ///
-/// Returns `(row, col)` on success, `None` if the query fails.
-fn query_cursor_position(pane_id: &str) -> Option<(u16, u16)> {
-    let output = Command::new("tmux")
-        .args([
-            "display-message",
-            "-p",
-            "-t",
-            pane_id,
-            "#{cursor_x},#{cursor_y}",
-        ])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    let s = String::from_utf8_lossy(&output.stdout);
-    let s = s.trim();
-    let (x_str, y_str) = s.split_once(',')?;
-    let x: u16 = x_str.parse().ok()?;
-    let y: u16 = y_str.parse().ok()?;
-    Some((y, x))
+/// Claude Code renders its cursor as a reverse-video space (`\x1b[7m \x1b[0m`).
+/// Returns `(row, col)` where col accounts for wide characters.
+fn detect_cursor_position(content: &str) -> Option<(u16, u16)> {
+    let lines: Vec<&str> = content.split('\n').collect();
+    for (row, line) in lines.iter().enumerate().rev() {
+        let mut col: u16 = 0;
+        let mut chars = line.chars().peekable();
+        let mut in_reverse = false;
+
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                // Parse ESC sequence
+                if chars.peek() == Some(&'[') {
+                    chars.next(); // consume '['
+                    let mut params = String::new();
+                    while let Some(&c) = chars.peek() {
+                        if c.is_ascii_digit() || c == ';' {
+                            params.push(c);
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                    if let Some(&final_byte) = chars.peek() {
+                        chars.next(); // consume final byte
+                        if final_byte == 'm' {
+                            // SGR sequence
+                            if params == "7" {
+                                in_reverse = true;
+                            } else if params == "0" || params == "27" || params.is_empty() {
+                                in_reverse = false;
+                            }
+                        }
+                    }
+                } else if chars.peek() == Some(&']') {
+                    // OSC sequence - skip until ST or BEL
+                    chars.next();
+                    while let Some(c) = chars.next() {
+                        if c == '\x07' {
+                            break;
+                        }
+                        if c == '\x1b' && chars.peek() == Some(&'\\') {
+                            chars.next();
+                            break;
+                        }
+                    }
+                }
+                continue;
+            }
+
+            if in_reverse {
+                // Row count is bounded by terminal rows.
+                #[allow(clippy::cast_possible_truncation)]
+                return Some((row as u16, col));
+            }
+
+            let width = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+            // Column position in a terminal row fits in u16.
+            #[allow(clippy::cast_possible_truncation)]
+            { col += width as u16; }
+        }
+    }
+    None
 }
 
 /// Capture a tmux pane with scrollback history (ANSI escapes preserved).
@@ -291,7 +334,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     } else {
                         capture_pane_content(&session.pane_id, None)
                     };
-                    let cursor_pos = query_cursor_position(&session.pane_id);
+                    let cursor_pos = detect_cursor_position(&content);
                     state.preview_contents = vec![PreviewEntry {
                         name: session.project_name.clone(),
                         pane_id: session.pane_id.clone(),
@@ -317,7 +360,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         } else {
                             capture_pane_content(&s.pane_id, None)
                         };
-                        let cursor_pos = query_cursor_position(&s.pane_id);
+                        let cursor_pos = detect_cursor_position(&content);
                         PreviewEntry {
                             name: s.project_name.clone(),
                             pane_id: s.pane_id.clone(),
@@ -447,6 +490,47 @@ mod tests {
         // Some terminals use BEL (\x07) instead of ST (\x1b\\)
         let input = "\x1b]8;;file:///path\x07link text\x1b]8;;\x07";
         assert_eq!(strip_osc8_hyperlinks(input), "link text");
+    }
+
+    #[test]
+    fn test_detect_cursor_basic() {
+        // reverse-video space at col 2 on row 0
+        let input = "ab\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_multiline() {
+        let input = "line1\n\x1b[39m❯  \x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((1, 3)));
+    }
+
+    #[test]
+    fn test_detect_cursor_none() {
+        let input = "no cursor here\njust text";
+        assert_eq!(detect_cursor_position(input), None);
+    }
+
+    #[test]
+    fn test_detect_cursor_with_wide_chars() {
+        // "日本" takes 4 columns, then reverse space at col 4
+        let input = "日本\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 4)));
+    }
+
+    #[test]
+    fn test_detect_cursor_with_ansi_before() {
+        // color codes don't add to column count
+        let input = "\x1b[31mab\x1b[0m\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_returns_last_match() {
+        // Two reverse-video cells: row 0 col 2 and row 2 col 3
+        // Should return the last one (row 2, col 3)
+        let input = "ab\x1b[7m \x1b[0mmore\nplain line\n❯  \x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((2, 3)));
     }
 
     #[test]

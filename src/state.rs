@@ -187,7 +187,7 @@ pub struct PreviewEntry {
     pub title: Option<String>,
     /// Captured pane content.
     pub content: String,
-    /// Cursor position (row, col) queried from tmux cursor_x/cursor_y.
+    /// Cursor position (row, col) detected from reverse-video cell in captured content.
     pub cursor_pos: Option<(u16, u16)>,
 }
 
