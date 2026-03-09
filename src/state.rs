@@ -82,6 +82,8 @@ pub struct ManagedSession {
     pub jsonl_mtime: Option<std::time::SystemTime>,
     /// Whether the session has ever been in the Working state.
     pub has_worked: bool,
+    /// Git worktree name (basename of worktree directory), if running in a worktree.
+    pub worktree_name: Option<String>,
 }
 
 impl ManagedSession {
@@ -336,6 +338,7 @@ impl AppState {
                     permission_mode: session.permission_mode.clone(),
                     jsonl_mtime: None,
                     has_worked: matches!(session.state, ClaudeState::Working),
+                    worktree_name: session.pane.worktree_name.clone(),
                 });
             }
         }
@@ -747,6 +750,7 @@ mod tests {
                 pid,
                 cwd: format!("/home/user/{project}"),
                 project_name: project.to_string(),
+                worktree_name: None,
             },
             state,
             permission_mode: PermissionMode::AskBeforeEdits,

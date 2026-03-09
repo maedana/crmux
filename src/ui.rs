@@ -681,8 +681,18 @@ fn draw_sessions_list(
             ),
         ];
         if let Some(ref branch) = session.git_branch {
+            let branch_display = if let Some(ref wt) = session.worktree_name {
+                format!(" ({branch}/{wt})")
+            } else {
+                format!(" ({branch})")
+            };
             title_spans.push(Span::styled(
-                format!(" ({branch})"),
+                branch_display,
+                Style::default().fg(Color::DarkGray),
+            ));
+        } else if let Some(ref wt) = session.worktree_name {
+            title_spans.push(Span::styled(
+                format!(" ({wt})"),
                 Style::default().fg(Color::DarkGray),
             ));
         }
