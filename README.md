@@ -74,7 +74,7 @@ Add the following to `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "crmux notify session-start"
+            "command": "crmux rpc session-start"
           }
         ]
       }
@@ -83,19 +83,19 @@ Add the following to `~/.claude/settings.json`:
 }
 ```
 
-To also display model display name (e.g. "Opus") and context window usage percentage, configure a `statusLine` command. The simplest setup uses `crmux notify status-update` directly:
+To also display model display name (e.g. "Opus") and context window usage percentage, configure a `statusLine` command. The simplest setup uses `crmux rpc status-update` directly:
 
 ```json
 {
   "statusLine": {
     "type": "command",
-    "command": "crmux notify status-update",
+    "command": "crmux rpc status-update",
     "padding": 0
   }
 }
 ```
 
-> **Note:** The `statusLine` command's stdout is used as Claude Code's own status line display. Since `crmux notify` produces no output, Claude Code's status line will be blank with this setup. If you want both crmux sidebar info **and** Claude Code's status line, use a wrapper script instead.
+> **Note:** The `statusLine` command's stdout is used as Claude Code's own status line display. Since `crmux rpc` produces no output, Claude Code's status line will be blank with this setup. If you want both crmux sidebar info **and** Claude Code's status line, use a wrapper script instead.
 
 <details>
 <summary>Wrapper script example (ccstatus)</summary>
@@ -107,7 +107,7 @@ Create `~/.local/bin/ccstatus`:
 input=$(cat)
 
 # Notify crmux of status update (non-blocking)
-echo "$input" | crmux notify status-update &
+echo "$input" | crmux rpc status-update &
 
 MODEL=$(echo "$input" | jq -r '.model.display_name')
 CONTEXT_SIZE=$(echo "$input" | jq -r '.context_window.context_window_size')
@@ -140,13 +140,13 @@ External tools can send text to Claude Code sessions via the `send_text` RPC met
 
 ```sh
 # Send to the currently selected pane
-echo '{"text": "hello"}' | crmux notify send-text
+echo '{"text": "hello"}' | crmux rpc send-text
 
 # Send to an idle session by project name (prefix match)
-echo '{"text": "implement feature X", "project": "crmux"}' | crmux notify send-text
+echo '{"text": "implement feature X", "project": "crmux"}' | crmux rpc send-text
 
 # Paste text without pressing Enter
-echo '{"text": "draft prompt", "project": "crmux", "no_execute": true}' | crmux notify send-text
+echo '{"text": "draft prompt", "project": "crmux", "no_execute": true}' | crmux rpc send-text
 ```
 
 **Parameters:**
