@@ -519,6 +519,7 @@ mod tests {
             jsonl_mtime: None,
             has_worked: false,
             worktree_name: None,
+            git_diff: None,
         });
         state
     }
@@ -910,6 +911,7 @@ mod tests {
             jsonl_mtime: None,
             has_worked: false,
             worktree_name: None,
+            git_diff: None,
         });
         state.sessions.push(ManagedSession {
             pid: 200,
@@ -929,6 +931,7 @@ mod tests {
             jsonl_mtime: None,
             has_worked: false,
             worktree_name: None,
+            git_diff: None,
         });
         state.sessions.push(ManagedSession {
             pid: 300,
@@ -948,6 +951,7 @@ mod tests {
             jsonl_mtime: None,
             has_worked: false,
             worktree_name: None,
+            git_diff: None,
         });
         state
     }
@@ -1474,6 +1478,7 @@ mod tests {
                 jsonl_mtime: None,
                 has_worked: false,
             worktree_name: None,
+            git_diff: None,
             });
         }
         state.tab_state.rebuild_tabs(&state.sessions);

@@ -23,6 +23,65 @@ fn resolve_git_branch(cwd: &str) -> Option<String> {
     }
 }
 
+/// Parse `git diff --numstat` output and return (file_count, insertions, deletions).
+fn parse_numstat(output: &[u8]) -> (usize, usize, usize) {
+    let text = String::from_utf8_lossy(output);
+    let mut files = 0;
+    let mut insertions = 0;
+    let mut deletions = 0;
+    for line in text.lines() {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 2 {
+            files += 1;
+            // Binary files show "-" instead of numbers
+            insertions += parts[0].parse::<usize>().unwrap_or(0);
+            deletions += parts[1].parse::<usize>().unwrap_or(0);
+        }
+    }
+    (files, insertions, deletions)
+}
+
+/// Run `git diff --numstat` (staged + unstaged) and return a `GitDiffInfo`.
+/// Returns `None` if not in a git repo or git is not available.
+fn resolve_git_diff(cwd: &str) -> Option<GitDiffInfo> {
+    // staged
+    let staged_output = Command::new("git")
+        .args(["-C", cwd, "diff", "--cached", "--numstat"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !staged_output.status.success() {
+        return None;
+    }
+    let (staged_files, staged_ins, staged_del) = parse_numstat(&staged_output.stdout);
+
+    // unstaged
+    let unstaged_output = Command::new("git")
+        .args(["-C", cwd, "diff", "--numstat"])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    let (modified_files, unstaged_ins, unstaged_del) = if unstaged_output.status.success() {
+        parse_numstat(&unstaged_output.stdout)
+    } else {
+        (0, 0, 0)
+    };
+
+    let info = GitDiffInfo {
+        staged_files,
+        modified_files,
+        insertions: staged_ins + unstaged_ins,
+        deletions: staged_del + unstaged_del,
+    };
+    if info.staged_files == 0 && info.modified_files == 0 {
+        None
+    } else {
+        Some(info)
+    }
+}
+
 /// Build the path to a session's JSONL file: `~/.claude/projects/<project_dir>/<session_id>.jsonl`
 fn jsonl_path(cwd: &str, session_id: &str) -> Option<String> {
     let home = std::env::var("HOME").ok()?;
@@ -45,6 +104,34 @@ pub fn permission_mode_switch_count(current: &PermissionMode, target_mode: &str)
         _ => return 0,
     };
     (target_idx + 3 - current_idx) % 3
+}
+
+/// Git diff summary for a session's working directory.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitDiffInfo {
+    pub staged_files: usize,
+    pub modified_files: usize,
+    pub insertions: usize,
+    pub deletions: usize,
+}
+
+impl GitDiffInfo {
+    /// Format as display string: `+3 ~5 (+42 -15)`
+    /// Returns empty string if no changes.
+    pub fn display(&self) -> String {
+        if self.staged_files == 0 && self.modified_files == 0 {
+            return String::new();
+        }
+        let mut parts = Vec::new();
+        if self.staged_files > 0 {
+            parts.push(format!("+{}", self.staged_files));
+        }
+        if self.modified_files > 0 {
+            parts.push(format!("~{}", self.modified_files));
+        }
+        parts.push(format!("(+{} -{})", self.insertions, self.deletions));
+        parts.join(" ")
+    }
 }
 
 /// A Claude Code session managed by crmux, tracked by PID.
@@ -84,6 +171,8 @@ pub struct ManagedSession {
     pub has_worked: bool,
     /// Git worktree name (basename of worktree directory), if running in a worktree.
     pub worktree_name: Option<String>,
+    /// Git diff summary (staged/modified files and line changes).
+    pub git_diff: Option<GitDiffInfo>,
 }
 
 impl ManagedSession {
@@ -193,6 +282,8 @@ pub struct PreviewEntry {
     pub content: String,
     /// Cursor position (row, col) detected from reverse-video cell in captured content.
     pub cursor_pos: Option<(u16, u16)>,
+    /// Git diff summary for display in title_bottom.
+    pub git_diff: Option<GitDiffInfo>,
 }
 
 /// Input mode for the sidebar.
@@ -322,6 +413,7 @@ impl AppState {
                     }
                     existing.state = session.state.clone();
                     existing.state_changed_at = session.state_changed_at;
+                    existing.git_diff = resolve_git_diff(&existing.cwd);
                 }
             } else {
                 added.push(session.pane.pid);
@@ -337,12 +429,13 @@ impl AppState {
                     model: None,
                     context_percent: None,
                     cwd: session.pane.cwd.clone(),
-                    git_branch: None,
+                    git_branch: resolve_git_branch(&session.pane.cwd),
                     auto_title: None,
                     permission_mode: session.permission_mode.clone(),
                     jsonl_mtime: None,
                     has_worked: matches!(session.state, ClaudeState::Working),
                     worktree_name: session.pane.worktree_name.clone(),
+                    git_diff: resolve_git_diff(&session.pane.cwd),
                 });
             }
         }
@@ -550,10 +643,11 @@ impl AppState {
         self.sessions.iter().find(|s| s.pane_id == pane_id)
     }
 
-    /// Refresh git branch names for all sessions by running `git branch --show-current`.
-    pub fn refresh_git_branches(&mut self) {
+    /// Refresh git info (branch names and diff) for all sessions.
+    pub fn refresh_git_info(&mut self) {
         for session in &mut self.sessions {
             session.git_branch = resolve_git_branch(&session.cwd);
+            session.git_diff = resolve_git_diff(&session.cwd);
         }
     }
 
@@ -959,6 +1053,7 @@ mod tests {
             worktree_name: None,
             content: "hello".to_string(),
             cursor_pos: None,
+            git_diff: None,
         };
         assert_eq!(entry.name, "crmux");
         assert_eq!(entry.title, Some("development".to_string()));
@@ -974,6 +1069,7 @@ mod tests {
             worktree_name: None,
             content: "hello".to_string(),
             cursor_pos: None,
+            git_diff: None,
         };
         assert_eq!(entry.title, None);
     }
@@ -1505,7 +1601,7 @@ mod tests {
     }
 
     #[test]
-    fn test_refresh_git_branches_sets_branch_for_valid_repo() {
+    fn test_refresh_git_info_sets_branch_for_valid_repo() {
         let mut app = AppState::new(None);
         let monitor = make_monitor(vec![
             make_session(100, "%1", "crmux", ClaudeState::Idle),
@@ -1513,19 +1609,19 @@ mod tests {
         app.sync_with_monitor(&monitor);
         // Use this repo's own cwd for a known git repo
         app.sessions[0].cwd = env!("CARGO_MANIFEST_DIR").to_string();
-        app.refresh_git_branches();
+        app.refresh_git_info();
         assert!(app.sessions[0].git_branch.is_some());
     }
 
     #[test]
-    fn test_refresh_git_branches_none_for_non_repo() {
+    fn test_refresh_git_info_none_for_non_repo() {
         let mut app = AppState::new(None);
         let monitor = make_monitor(vec![
             make_session(100, "%1", "tmp", ClaudeState::Idle),
         ]);
         app.sync_with_monitor(&monitor);
         app.sessions[0].cwd = "/tmp".to_string();
-        app.refresh_git_branches();
+        app.refresh_git_info();
         assert_eq!(app.sessions[0].git_branch, None);
     }
 
@@ -2656,5 +2752,77 @@ mod tests {
 
         assert_eq!(app.sessions[0].session_id, Some("first-session-id".to_string()));
         assert_eq!(app.sessions[0].jsonl_mtime, None);
+    }
+
+    // --- GitDiffInfo display ---
+
+    #[test]
+    fn test_git_diff_info_display_all_fields() {
+        let info = GitDiffInfo {
+            staged_files: 3,
+            modified_files: 5,
+            insertions: 42,
+            deletions: 15,
+        };
+        assert_eq!(info.display(), "+3 ~5 (+42 -15)");
+    }
+
+    #[test]
+    fn test_git_diff_info_display_staged_only() {
+        let info = GitDiffInfo {
+            staged_files: 2,
+            modified_files: 0,
+            insertions: 10,
+            deletions: 0,
+        };
+        assert_eq!(info.display(), "+2 (+10 -0)");
+    }
+
+    #[test]
+    fn test_git_diff_info_display_modified_only() {
+        let info = GitDiffInfo {
+            staged_files: 0,
+            modified_files: 3,
+            insertions: 0,
+            deletions: 7,
+        };
+        assert_eq!(info.display(), "~3 (+0 -7)");
+    }
+
+    #[test]
+    fn test_parse_numstat_normal() {
+        let output = b"10\t5\tsrc/main.rs\n3\t0\tsrc/lib.rs\n";
+        let (files, ins, del) = parse_numstat(output);
+        assert_eq!(files, 2);
+        assert_eq!(ins, 13);
+        assert_eq!(del, 5);
+    }
+
+    #[test]
+    fn test_parse_numstat_binary() {
+        let output = b"-\t-\timage.png\n2\t1\tsrc/main.rs\n";
+        let (files, ins, del) = parse_numstat(output);
+        assert_eq!(files, 2);
+        assert_eq!(ins, 2);
+        assert_eq!(del, 1);
+    }
+
+    #[test]
+    fn test_parse_numstat_empty() {
+        let (files, ins, del) = parse_numstat(b"");
+        assert_eq!(files, 0);
+        assert_eq!(ins, 0);
+        assert_eq!(del, 0);
+    }
+
+    #[test]
+    fn test_git_diff_info_display_no_changes() {
+        let info = GitDiffInfo {
+            staged_files: 0,
+            modified_files: 0,
+            insertions: 0,
+            deletions: 0,
+        };
+        assert_eq!(info.display(), "");
     }
 }

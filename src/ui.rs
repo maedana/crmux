@@ -297,6 +297,36 @@ fn compute_cursor_pos(inner: Rect, cursor_pos: Option<(u16, u16)>, scroll_y: u16
 /// Returns the cursor position (x, y) for the selected preview pane's bottom-left (IME anchor).
 // Single/multi-pane rendering is already split into branches; further extraction hurts readability.
 #[allow(clippy::too_many_lines)]
+/// Convert `GitDiffInfo` to a colored `Line` for title_bottom display.
+/// GitHub-style colors: green for additions/staged, yellow for modified, red for deletions.
+fn git_diff_line(info: &crate::state::GitDiffInfo) -> Option<Line<'static>> {
+    let text = info.display();
+    if text.is_empty() {
+        return None;
+    }
+    let green = Style::default().fg(Color::Rgb(63, 185, 80));
+    let yellow = Style::default().fg(Color::Rgb(210, 153, 34));
+    let red = Style::default().fg(Color::Rgb(248, 81, 73));
+    let gray = Style::default().fg(Color::Gray);
+
+    let mut spans = vec![Span::styled(" ", gray)];
+    if info.staged_files > 0 {
+        spans.push(Span::styled(format!("+{}", info.staged_files), green));
+        spans.push(Span::raw(" "));
+    }
+    if info.modified_files > 0 {
+        spans.push(Span::styled(format!("~{}", info.modified_files), yellow));
+        spans.push(Span::raw(" "));
+    }
+    spans.push(Span::styled("(", gray));
+    spans.push(Span::styled(format!("+{}", info.insertions), green));
+    spans.push(Span::styled(" ", gray));
+    spans.push(Span::styled(format!("-{}", info.deletions), red));
+    spans.push(Span::styled(") ", gray));
+
+    Some(Line::from(spans).right_aligned())
+}
+
 fn draw_preview_panes(
     f: &mut ratatui::Frame,
     preview_contents: &[PreviewEntry],
@@ -333,13 +363,15 @@ fn draw_preview_panes(
         if preview_scroll > 0 {
             title.push_str(" [SCROLL]");
         }
+        let mut block = Block::default()
+            .title(format!("{SELECTED_ICON}{title}"))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Gray));
+        if let Some(line) = entry.git_diff.as_ref().and_then(git_diff_line) {
+            block = block.title_bottom(line);
+        }
         let preview = Paragraph::new(preview_text)
-            .block(
-                Block::default()
-                    .title(format!("{SELECTED_ICON}{title}"))
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::Gray)),
-            )
+            .block(block)
             .scroll((scroll_y, 0));
         let inner = Block::default().borders(Borders::ALL).inner(area);
         let cursor_pos = compute_cursor_pos(inner, entry.cursor_pos, scroll_y);
@@ -397,13 +429,15 @@ fn draw_preview_panes(
             };
             let title_prefix = if is_focused { SELECTED_ICON } else { "" };
             let title = preview_title(&entry.name, &entry.pane_id, entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
+            let mut block = Block::default()
+                .title(format!("{title_prefix}{title}"))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::Gray));
+            if let Some(diff_text) = entry.git_diff.as_ref().map(|d| d.display()).filter(|s| !s.is_empty()) {
+                block = block.title_bottom(Line::from(format!(" {diff_text} ")).right_aligned());
+            }
             let preview = Paragraph::new(preview_text)
-                .block(
-                    Block::default()
-                        .title(format!("{title_prefix}{title}"))
-                        .borders(Borders::ALL)
-                        .border_style(Style::default().fg(Color::Gray)),
-                )
+                .block(block)
                 .scroll((scroll_y, 0));
             if is_focused {
                 let inner = Block::default().borders(Borders::ALL).inner(cell_area);

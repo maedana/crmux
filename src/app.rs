@@ -331,7 +331,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     rpc_server: Option<&crate::rpc::RpcServer>,
     claudeye_child: &mut Option<std::process::Child>,
 ) -> io::Result<()> {
-    let mut last_branch_refresh = std::time::Instant::now()
+    let mut last_git_refresh = std::time::Instant::now()
         .checked_sub(Duration::from_secs(10))
         .unwrap_or_else(std::time::Instant::now);
 
@@ -347,10 +347,10 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             }
 
             // Refresh git branches and auto titles periodically (every 5 seconds)
-            if last_branch_refresh.elapsed() >= Duration::from_secs(5) {
-                state.refresh_git_branches();
+            if last_git_refresh.elapsed() >= Duration::from_secs(5) {
+                state.refresh_git_info();
                 state.refresh_auto_titles();
-                last_branch_refresh = std::time::Instant::now();
+                last_git_refresh = std::time::Instant::now();
             }
 
             // Process RPC messages
@@ -385,6 +385,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         worktree_name: session.worktree_name.clone(),
                         content,
                         cursor_pos,
+                        git_diff: session.git_diff.clone(),
                     }];
                 } else {
                     state.preview_contents.clear();
@@ -413,6 +414,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                             worktree_name: s.worktree_name.clone(),
                             content,
                             cursor_pos,
+                            git_diff: s.git_diff.clone(),
                         }
                     })
                     .collect();
