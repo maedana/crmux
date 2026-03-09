@@ -37,6 +37,15 @@ pub fn extract_slug_from_jsonl(reader: impl std::io::BufRead) -> Option<String> 
     None
 }
 
+fn extract_slash_command(text: &str) -> Option<String> {
+    let start_tag = "<command-name>";
+    let end_tag = "</command-name>";
+    let start = text.find(start_tag)? + start_tag.len();
+    let end = text[start..].find(end_tag)? + start;
+    let cmd = text[start..end].trim();
+    if cmd.is_empty() { None } else { Some(cmd.to_string()) }
+}
+
 pub fn extract_last_prompt_from_jsonl(file: &std::fs::File) -> Option<String> {
     use std::io::{Read, Seek, SeekFrom};
 
@@ -80,6 +89,7 @@ pub fn extract_last_prompt_from_jsonl(file: &std::fs::File) -> Option<String> {
             }
         })();
         if let Some(text) = text {
+            let text = extract_slash_command(&text).unwrap_or(text);
             if text.len() > 80 {
                 let truncated: String = text.chars().take(80).collect();
                 return Some(format!("{truncated}…"));
@@ -544,6 +554,58 @@ mod tests {
 
         let result = super::collect_all_plans_for_project_with_home(home, "/work/myproject", "myproject");
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_extract_slash_command_simple() {
+        assert_eq!(
+            super::extract_slash_command("<command-name>/clear</command-name>"),
+            Some("/clear".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_slash_command_multiple_tags() {
+        assert_eq!(
+            super::extract_slash_command("<command-name>/commit</command-name><command-message>commit</command-message><command-args></command-args>"),
+            Some("/commit".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_slash_command_no_tags() {
+        assert_eq!(
+            super::extract_slash_command("hello world"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_slash_command_empty_name() {
+        assert_eq!(
+            super::extract_slash_command("<command-name></command-name>"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_extract_last_prompt_slash_command() {
+        let jsonl = r#"{"type":"user","message":{"content":"<command-name>/clear</command-name>\n            <command-message>clear</command-message>\n            <command-args></command-args>"}}"#;
+        let (_dir, file) = write_tempfile(jsonl);
+        assert_eq!(
+            super::extract_last_prompt_from_jsonl(&file),
+            Some("/clear".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_last_prompt_normal_text_unchanged() {
+        let jsonl = r#"{"type":"user","message":{"content":"hello world"}}"#;
+        let (_dir, file) = write_tempfile(jsonl);
+        assert_eq!(
+            super::extract_last_prompt_from_jsonl(&file),
+            Some("hello world".to_string())
+        );
     }
 
     #[test]
