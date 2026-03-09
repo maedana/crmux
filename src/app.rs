@@ -57,6 +57,45 @@ fn capture_pane_content(pane_id: &str, scrollback_lines: Option<u16>) -> String 
     strip_osc8_hyperlinks(&raw).trim_end().to_string()
 }
 
+/// Process SGR parameter string and determine whether reverse-video is toggled.
+///
+/// Parses semicolon-separated SGR params left-to-right:
+/// - `0` or empty → reset (reverse OFF)
+/// - `7` → reverse ON
+/// - `27` → reverse OFF
+/// - `38`/`48` → extended color; skip sub-parameters (`38;5;idx` or `38;2;r;g;b`)
+///
+/// Returns the final reverse state after processing all params.
+fn sgr_updates_reverse(params: &str, mut in_reverse: bool) -> bool {
+    if params.is_empty() {
+        return false; // bare ESC[m is a reset
+    }
+    let parts: Vec<&str> = params.split(';').collect();
+    let mut i = 0;
+    while i < parts.len() {
+        let code: u32 = parts[i].parse().unwrap_or(0);
+        match code {
+            0 => in_reverse = false,
+            7 => in_reverse = true,
+            27 => in_reverse = false,
+            38 | 48 => {
+                // Extended color: skip sub-parameters
+                if i + 1 < parts.len() {
+                    let next: u32 = parts[i + 1].parse().unwrap_or(0);
+                    match next {
+                        2 => i += 4, // 38;2;r;g;b
+                        5 => i += 2, // 38;5;idx
+                        _ => i += 1,
+                    }
+                }
+            }
+            _ => {} // other SGR params don't affect reverse
+        }
+        i += 1;
+    }
+    in_reverse
+}
+
 /// Detect cursor position from reverse-video cell in ANSI content.
 ///
 /// Claude Code renders its cursor as a reverse-video space (`\x1b[7m \x1b[0m`).
@@ -82,15 +121,18 @@ fn detect_cursor_position(content: &str) -> Option<(u16, u16)> {
                             break;
                         }
                     }
+                    // Consume intermediate bytes (0x20-0x2F, e.g. '?' in \x1b[?25h)
+                    while let Some(&c) = chars.peek() {
+                        if (0x20..=0x2F).contains(&(c as u32)) {
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
                     if let Some(&final_byte) = chars.peek() {
                         chars.next(); // consume final byte
                         if final_byte == 'm' {
-                            // SGR sequence
-                            if params == "7" {
-                                in_reverse = true;
-                            } else if params == "0" || params == "27" || params.is_empty() {
-                                in_reverse = false;
-                            }
+                            in_reverse = sgr_updates_reverse(&params, in_reverse);
                         }
                     }
                 } else if chars.peek() == Some(&']') {
@@ -531,6 +573,48 @@ mod tests {
         // Should return the last one (row 2, col 3)
         let input = "ab\x1b[7m \x1b[0mmore\nplain line\n❯  \x1b[7m \x1b[0m";
         assert_eq!(detect_cursor_position(input), Some((2, 3)));
+    }
+
+    #[test]
+    fn test_detect_cursor_compound_sgr_bold_reverse() {
+        // \x1b[1;7m = bold + reverse
+        let input = "ab\x1b[1;7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_compound_sgr_reverse_with_color() {
+        // \x1b[7;38;5;245m = reverse + 256-color fg
+        let input = "ab\x1b[7;38;5;245m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_compound_sgr_truecolor() {
+        // \x1b[7;38;2;100;200;50m = reverse + truecolor fg
+        let input = "ab\x1b[7;38;2;100;200;50m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_compound_reset() {
+        // \x1b[0;39m = reset + default fg color → reverse OFF
+        let input = "ab\x1b[7m \x1b[0;39m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_reset_then_reverse() {
+        // \x1b[0;7m = reset then reverse → reverse ON
+        let input = "ab\x1b[0;7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_reverse_then_reset() {
+        // \x1b[7;0m = reverse then reset → reverse OFF, so no cursor
+        let input = "\x1b[7;0mab";
+        assert_eq!(detect_cursor_position(input), None);
     }
 
     #[test]
