@@ -75,11 +75,7 @@ fn resolve_git_diff(cwd: &str) -> Option<GitDiffInfo> {
         insertions: staged_ins + unstaged_ins,
         deletions: staged_del + unstaged_del,
     };
-    if info.staged_files == 0 && info.modified_files == 0 {
-        None
-    } else {
-        Some(info)
-    }
+    Some(info)
 }
 
 /// Build the path to a session's JSONL file: `~/.claude/projects/<project_dir>/<session_id>.jsonl`
