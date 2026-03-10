@@ -181,6 +181,8 @@ fn collect_all_plans_for_project_with_home(
         let Some(slug) = extract_slug_from_jsonl(reader) else {
             continue;
         };
+        // clone is needed: slug is moved into PlanInfo below, but HashSet needs its own copy.
+        // Using HashSet<&str> would avoid the clone but complicates lifetimes.
         if !seen_slugs.insert(slug.clone()) {
             continue;
         }

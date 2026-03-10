@@ -197,7 +197,7 @@ pub fn draw(
 
     // Footer: app name + mode indicator + keybindings (full width)
     let footer_line = footer_spans(input_mode, layout_mode);
-    let instructions = Paragraph::new(Line::from(footer_line.clone()))
+    let instructions = Paragraph::new(Line::from(footer_line))
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
     f.render_widget(instructions, v_chunks[1]);

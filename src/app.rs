@@ -447,6 +447,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 }
             }
 
+            // Collect filtered sessions once for preview + draw
+            let filtered: Vec<_> = state.filtered_sessions().into_iter().cloned().collect();
+
             // Update preview contents based on layout mode
             match state.layout_mode {
                 crate::state::LayoutMode::Single => {
@@ -475,7 +478,6 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 }
                 crate::state::LayoutMode::Grid | crate::state::LayoutMode::EvenHorizontal | crate::state::LayoutMode::EvenVertical => {
                     // Show all filtered sessions in a grid (scrollback only for focused pane)
-                    let filtered: Vec<_> = state.filtered_sessions().into_iter().cloned().collect();
                     let selected_pane = state.selected_pane_id().map(String::from);
                     let entries: Vec<PreviewEntry> = filtered
                         .iter()
@@ -507,7 +509,6 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             }
 
             // Draw TUI
-            let filtered: Vec<_> = state.filtered_sessions().into_iter().cloned().collect();
             let frame = terminal.draw(|f| {
                 ui::draw(
                     f,
