@@ -268,6 +268,12 @@ pub struct PreviewEntry {
     pub cursor_pos: Option<(u16, u16)>,
     /// Git diff summary for display in `title_bottom`.
     pub git_diff: Option<GitDiffInfo>,
+    /// Claude session state (for border color).
+    pub state: ClaudeState,
+    /// Whether the session has ever been in Working state.
+    pub has_worked: bool,
+    /// When the session state last changed (for pulse timing).
+    pub state_changed_at: Instant,
 }
 
 /// Maximum number of sessions selectable by number keys (1-9).
@@ -1069,6 +1075,9 @@ mod tests {
             content: "hello".to_string(),
             cursor_pos: None,
             git_diff: None,
+            state: ClaudeState::Idle,
+            has_worked: false,
+            state_changed_at: Instant::now(),
         };
         assert_eq!(entry.name, "crmux");
         assert_eq!(entry.title, Some("development".to_string()));
@@ -1086,6 +1095,9 @@ mod tests {
             content: "hello".to_string(),
             cursor_pos: None,
             git_diff: None,
+            state: ClaudeState::Idle,
+            has_worked: false,
+            state_changed_at: Instant::now(),
         };
         assert_eq!(entry.title, None);
     }

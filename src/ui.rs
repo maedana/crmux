@@ -380,10 +380,11 @@ fn draw_preview_panes(
         if preview_scroll > 0 {
             title.push_str(" [SCROLL]");
         }
+        let color = state_color(&entry.state);
         let mut block = Block::default()
             .title(format!("{SELECTED_ICON}{title}"))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Gray));
+            .border_style(Style::default().fg(color));
         if let Some(info) = entry.git_diff.as_ref() {
             block = block.title_bottom(git_diff_line(info));
         }
@@ -510,10 +511,16 @@ fn render_preview_cell(
     };
     let title_prefix = if is_focused { SELECTED_ICON } else { "" };
     let title = format_title(&entry.name, Some(entry.index), entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
+    let color = state_color(&entry.state);
+    let elapsed_secs = entry.state_changed_at.elapsed().as_secs();
+    let is_pulsing = should_pulse(&entry.state, elapsed_secs, entry.has_worked);
     let mut block = Block::default()
         .title(format!("{title_prefix}{title}"))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Gray));
+        .border_style(Style::default().fg(color));
+    if is_pulsing && !is_focused {
+        block = block.style(Style::default().bg(pulse_bg_color(color)));
+    }
     if let Some(info) = entry.git_diff.as_ref() {
         block = block.title_bottom(git_diff_line(info));
     }

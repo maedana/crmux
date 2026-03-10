@@ -472,6 +472,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                             content,
                             cursor_pos,
                             git_diff: session.git_diff.clone(),
+                            state: session.state.clone(),
+                            has_worked: session.has_worked,
+                            state_changed_at: session.state_changed_at,
                         }];
                     } else {
                         state.preview_contents.clear();
@@ -504,6 +507,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                                 content,
                                 cursor_pos,
                                 git_diff: s.git_diff.clone(),
+                                state: s.state.clone(),
+                                has_worked: s.has_worked,
+                                state_changed_at: s.state_changed_at,
                             }
                         })
                         .collect();
