@@ -446,60 +446,63 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 }
             }
 
-            // Update preview contents
-            let marked = state.marked_sessions();
-            if marked.is_empty() {
-                // No marked sessions: show the selected session
-                if let Some(session) = state.selected_session() {
-                    let content = if state.preview_scroll > 0 {
-                        let scrollback_lines = state.preview_height.saturating_mul(3);
-                        capture_pane_content(&session.pane_id, Some(scrollback_lines))
-                    } else {
-                        capture_pane_content(&session.pane_id, None)
-                    };
-                    let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
-                    state.preview_contents = vec![PreviewEntry {
-                        name: session.project_name.clone(),
-                        pane_id: session.pane_id.clone(),
-                        title: session.display_title().map(String::from),
-                        git_branch: session.git_branch.clone(),
-                        worktree_name: session.worktree_name.clone(),
-                        content,
-                        cursor_pos,
-                        git_diff: session.git_diff.clone(),
-                    }];
-                } else {
-                    state.preview_contents.clear();
-                }
-            } else {
-                // Show all marked sessions (scrollback only for focused pane)
-                let selected_pane = state.selected_pane_id().map(String::from);
-                let entries: Vec<PreviewEntry> = marked
-                    .iter()
-                    .map(|s| {
-                        let is_focused =
-                            selected_pane.as_deref() == Some(s.pane_id.as_str());
-                        let content = if is_focused && state.preview_scroll > 0 {
-                            let scrollback_lines =
-                                state.preview_height.saturating_mul(3);
-                            capture_pane_content(&s.pane_id, Some(scrollback_lines))
+            // Update preview contents based on layout mode
+            match state.layout_mode {
+                crate::state::LayoutMode::Single => {
+                    // Show the selected session only
+                    if let Some(session) = state.selected_session() {
+                        let content = if state.preview_scroll > 0 {
+                            let scrollback_lines = state.preview_height.saturating_mul(3);
+                            capture_pane_content(&session.pane_id, Some(scrollback_lines))
                         } else {
-                            capture_pane_content(&s.pane_id, None)
+                            capture_pane_content(&session.pane_id, None)
                         };
                         let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
-                        PreviewEntry {
-                            name: s.project_name.clone(),
-                            pane_id: s.pane_id.clone(),
-                            title: s.display_title().map(String::from),
-                            git_branch: s.git_branch.clone(),
-                            worktree_name: s.worktree_name.clone(),
+                        state.preview_contents = vec![PreviewEntry {
+                            name: session.project_name.clone(),
+                            pane_id: session.pane_id.clone(),
+                            title: session.display_title().map(String::from),
+                            git_branch: session.git_branch.clone(),
+                            worktree_name: session.worktree_name.clone(),
                             content,
                             cursor_pos,
-                            git_diff: s.git_diff.clone(),
-                        }
-                    })
-                    .collect();
-                state.preview_contents = entries;
+                            git_diff: session.git_diff.clone(),
+                        }];
+                    } else {
+                        state.preview_contents.clear();
+                    }
+                }
+                crate::state::LayoutMode::Grid => {
+                    // Show all filtered sessions in a grid (scrollback only for focused pane)
+                    let filtered: Vec<_> = state.filtered_sessions().into_iter().cloned().collect();
+                    let selected_pane = state.selected_pane_id().map(String::from);
+                    let entries: Vec<PreviewEntry> = filtered
+                        .iter()
+                        .map(|s| {
+                            let is_focused =
+                                selected_pane.as_deref() == Some(s.pane_id.as_str());
+                            let content = if is_focused && state.preview_scroll > 0 {
+                                let scrollback_lines =
+                                    state.preview_height.saturating_mul(3);
+                                capture_pane_content(&s.pane_id, Some(scrollback_lines))
+                            } else {
+                                capture_pane_content(&s.pane_id, None)
+                            };
+                            let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
+                            PreviewEntry {
+                                name: s.project_name.clone(),
+                                pane_id: s.pane_id.clone(),
+                                title: s.display_title().map(String::from),
+                                git_branch: s.git_branch.clone(),
+                                worktree_name: s.worktree_name.clone(),
+                                content,
+                                cursor_pos,
+                                git_diff: s.git_diff.clone(),
+                            }
+                        })
+                        .collect();
+                    state.preview_contents = entries;
+                }
             }
 
             // Draw TUI
@@ -516,6 +519,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     state.help_scroll,
                     state.preview_scroll,
                     &state.tab_state,
+                    state.layout_mode,
                 );
             })?;
 

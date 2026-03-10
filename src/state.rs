@@ -125,7 +125,7 @@ pub struct ManagedSession {
     pub state: ClaudeState,
     /// When the current state was first observed.
     pub state_changed_at: Instant,
-    /// Whether this session is marked for multi-preview.
+    /// Whether this session is marked for filtering and broadcast.
     pub marked: bool,
     /// User-defined title label for this session.
     pub title: Option<String>,
@@ -166,6 +166,7 @@ impl ManagedSession {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
     All,
+    Marked,
     Project(String),
 }
 
@@ -194,6 +195,9 @@ impl TabState {
         projects.dedup();
 
         let mut new_tabs = vec![Tab::All];
+        if sessions.iter().any(|s| s.marked) {
+            new_tabs.push(Tab::Marked);
+        }
         for p in projects {
             new_tabs.push(Tab::Project(p));
         }
@@ -264,6 +268,15 @@ pub struct PreviewEntry {
     pub git_diff: Option<GitDiffInfo>,
 }
 
+/// Layout mode for the preview area.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayoutMode {
+    /// Show a single selected session.
+    Single,
+    /// Show all filtered sessions in a grid.
+    Grid,
+}
+
 /// Input mode for the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
@@ -309,6 +322,8 @@ pub struct AppState {
     pub esc_source_mode: Option<InputMode>,
     /// Whether the claudeye overlay is visible.
     pub claudeye_visible: bool,
+    /// Layout mode for the preview area.
+    pub layout_mode: LayoutMode,
     /// Tab state for project-based filtering.
     pub tab_state: TabState,
     /// Accumulated plan info from sessions.
@@ -334,6 +349,7 @@ impl AppState {
             pending_rpc: Vec::new(),
             esc_source_mode: None,
             claudeye_visible: false,
+            layout_mode: LayoutMode::Single,
             tab_state: TabState::new(),
             plans: Vec::new(),
             scanned_project_dirs: std::collections::HashSet::new(),
@@ -344,6 +360,7 @@ impl AppState {
     pub fn filtered_sessions(&self) -> Vec<&ManagedSession> {
         match self.tab_state.current_tab() {
             Tab::All => self.sessions.iter().collect(),
+            Tab::Marked => self.sessions.iter().filter(|s| s.marked).collect(),
             Tab::Project(name) => self
                 .sessions
                 .iter()
@@ -515,6 +532,14 @@ impl AppState {
         self.selected_session().map(|s| s.pane_id.as_str())
     }
 
+    /// Cycle the layout mode: Single → Grid → Single.
+    pub fn cycle_layout_mode(&mut self) {
+        self.layout_mode = match self.layout_mode {
+            LayoutMode::Single => LayoutMode::Grid,
+            LayoutMode::Grid => LayoutMode::Single,
+        };
+    }
+
     /// Toggle the mark on the currently selected session (PID-based).
     pub fn toggle_mark(&mut self) {
         let pid = self.selected_session().map(|s| s.pid);
@@ -523,11 +548,6 @@ impl AppState {
         {
             session.marked = !session.marked;
         }
-    }
-
-    /// Return references to all marked sessions.
-    pub fn marked_sessions(&self) -> Vec<&ManagedSession> {
-        self.sessions.iter().filter(|s| s.marked).collect()
     }
 
     /// Return pane IDs of all marked sessions.
@@ -1141,7 +1161,7 @@ mod tests {
         app.selected_index = 2;
         app.toggle_mark();
 
-        let marked = app.marked_sessions();
+        let marked: Vec<_> = app.sessions.iter().filter(|s| s.marked).collect();
         assert_eq!(marked.len(), 2);
         assert_eq!(marked[0].pid, 100);
         assert_eq!(marked[1].pid, 300);
@@ -1155,7 +1175,7 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
 
-        assert!(app.marked_sessions().is_empty());
+        assert!(app.sessions.iter().all(|s| !s.marked));
     }
 
     #[test]
@@ -2756,6 +2776,128 @@ mod tests {
         assert_eq!(files, 0);
         assert_eq!(ins, 0);
         assert_eq!(del, 0);
+    }
+
+    // --- Marked tab ---
+
+    #[test]
+    fn test_marked_tab_appears_when_sessions_marked() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // No marked sessions → no Marked tab
+        assert!(!app.tab_state.tabs.contains(&Tab::Marked));
+
+        // Mark a session
+        app.sessions[0].marked = true;
+        app.tab_state.rebuild_tabs(&app.sessions);
+
+        // Now Marked tab should appear
+        assert!(app.tab_state.tabs.contains(&Tab::Marked));
+    }
+
+    #[test]
+    fn test_marked_tab_position_after_all() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        app.sessions[0].marked = true;
+        app.tab_state.rebuild_tabs(&app.sessions);
+
+        // Marked tab should be at index 1 (right after All)
+        assert_eq!(app.tab_state.tabs[0], Tab::All);
+        assert_eq!(app.tab_state.tabs[1], Tab::Marked);
+    }
+
+    #[test]
+    fn test_filtered_sessions_marked_tab() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+            make_session(300, "%3", "crmux", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Mark first and third sessions
+        app.sessions[0].marked = true;
+        app.sessions[2].marked = true;
+        app.tab_state.rebuild_tabs(&app.sessions);
+
+        // Switch to Marked tab
+        let marked_pos = app.tab_state.tabs.iter().position(|t| *t == Tab::Marked).unwrap();
+        app.tab_state.selected_tab = marked_pos;
+
+        let filtered = app.filtered_sessions();
+        assert_eq!(filtered.len(), 2);
+        assert_eq!(filtered[0].pid, 100);
+        assert_eq!(filtered[1].pid, 300);
+    }
+
+    #[test]
+    fn test_marked_tab_disappears_when_no_marked_sessions() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Mark then unmark
+        app.sessions[0].marked = true;
+        app.tab_state.rebuild_tabs(&app.sessions);
+        assert!(app.tab_state.tabs.contains(&Tab::Marked));
+
+        app.sessions[0].marked = false;
+        app.tab_state.rebuild_tabs(&app.sessions);
+        assert!(!app.tab_state.tabs.contains(&Tab::Marked));
+    }
+
+    #[test]
+    fn test_marked_tab_fallback_to_all_when_empty() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "aegis", ClaudeState::Idle),
+            make_session(200, "%2", "crmux", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Mark a session and select Marked tab
+        app.sessions[0].marked = true;
+        app.tab_state.rebuild_tabs(&app.sessions);
+        let marked_pos = app.tab_state.tabs.iter().position(|t| *t == Tab::Marked).unwrap();
+        app.tab_state.selected_tab = marked_pos;
+        assert_eq!(*app.tab_state.current_tab(), Tab::Marked);
+
+        // Unmark all → Marked tab disappears → fallback to All
+        app.sessions[0].marked = false;
+        app.tab_state.rebuild_tabs(&app.sessions);
+        assert_eq!(*app.tab_state.current_tab(), Tab::All);
+    }
+
+    // --- LayoutMode tests ---
+
+    #[test]
+    fn test_layout_mode_default_single() {
+        let state = AppState::new(None);
+        assert_eq!(state.layout_mode, LayoutMode::Single);
+    }
+
+    #[test]
+    fn test_cycle_layout_mode() {
+        let mut state = AppState::new(None);
+        assert_eq!(state.layout_mode, LayoutMode::Single);
+        state.cycle_layout_mode();
+        assert_eq!(state.layout_mode, LayoutMode::Grid);
+        state.cycle_layout_mode();
+        assert_eq!(state.layout_mode, LayoutMode::Single);
     }
 
 }

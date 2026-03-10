@@ -179,6 +179,10 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.pending_g = true;
             Action::Continue
         }
+        KeyCode::Char('v') => {
+            state.cycle_layout_mode();
+            Action::Continue
+        }
         KeyCode::Char('o') => {
             state.claudeye_visible = !state.claudeye_visible;
             Action::Continue
@@ -1568,6 +1572,18 @@ mod tests {
         handle_key_event(&make_key_event(KeyCode::Left), &mut state);
         // wraps to last
         assert_eq!(*state.tab_state.current_tab(), crate::state::Tab::Project("crmux".to_string()));
+    }
+
+    // --- v key cycles layout mode ---
+
+    #[test]
+    fn test_v_cycles_layout_mode() {
+        use crate::state::LayoutMode;
+        let mut state = make_state_with_session();
+        assert_eq!(state.layout_mode, LayoutMode::Single);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.layout_mode, LayoutMode::Grid);
     }
 
 }

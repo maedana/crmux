@@ -8,7 +8,7 @@ use ratatui::{
 use std::time::{Instant, SystemTime};
 use tmux_claude_state::claude_state::{ClaudeState, PermissionMode};
 
-use crate::state::{InputMode, ManagedSession, PreviewEntry, Tab, TabState};
+use crate::state::{InputMode, LayoutMode, ManagedSession, PreviewEntry, Tab, TabState};
 
 const STALE_MIN_SECS: u64 = 5;
 const STALE_MAX_SECS: u64 = 15;
@@ -170,6 +170,7 @@ pub fn draw(
     help_scroll: u16,
     preview_scroll: u16,
     tab_state: &TabState,
+    layout_mode: LayoutMode,
 ) {
     let size = f.area();
 
@@ -195,7 +196,7 @@ pub fn draw(
     let preview_cursor = draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id, preview_scroll);
 
     // Footer: app name + mode indicator + keybindings (full width)
-    let footer_line = footer_spans(input_mode);
+    let footer_line = footer_spans(input_mode, layout_mode);
     let instructions = Paragraph::new(Line::from(footer_line.clone()))
         .block(Block::default().borders(Borders::ALL))
         .style(Style::default().fg(Color::Gray));
@@ -220,14 +221,25 @@ pub fn draw(
 }
 
 /// Build the footer spans: app name, optional vim-style mode indicator, and keybindings.
-fn footer_spans(input_mode: InputMode) -> Vec<Span<'static>> {
+fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled(
         concat!("crmux v", env!("CARGO_PKG_VERSION")),
         Style::default().fg(Color::White),
     )];
+    if layout_mode == LayoutMode::Grid {
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            "[Grid]",
+            Style::default().fg(Color::Yellow),
+        ));
+    }
     match input_mode {
         InputMode::Normal => {
-            spans.push(Span::raw(" | hjkl:Nav Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit"));
+            let v_label = match layout_mode {
+                LayoutMode::Single => "v:Grid",
+                LayoutMode::Grid => "v:Single",
+            };
+            spans.push(Span::raw(format!(" | hjkl:Nav Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -465,6 +477,7 @@ fn draw_tab_bar(f: &mut ratatui::Frame, tab_state: &TabState, area: Rect) {
         .map(|(i, tab)| {
             let name = match tab {
                 Tab::All => "All".to_string(),
+                Tab::Marked => "Marked".to_string(),
                 Tab::Project(p) => p.clone(),
             };
             if i == tab_state.selected_tab {
@@ -568,7 +581,8 @@ Keybindings (Normal mode):
   gg             Scroll preview to top
   G              Scroll preview to bottom
   s              Switch to tmux pane
-  Space          Mark for preview multiple tmux panes
+  Space          Mark session (for filtering and broadcast)
+  v              Toggle layout (Single <-> Grid)
   i              Enter input mode (send keys to the selected session)
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
@@ -647,6 +661,7 @@ fn draw_sessions_list(
 ) {
     let block_title = match tab_state.current_tab() {
         Tab::All => format!("Sessions ({})", sessions.len()),
+        Tab::Marked => format!("Marked ({})", sessions.len()),
         Tab::Project(name) => format!("{name} ({count})", count = sessions.len()),
     };
     let block = Block::default()
@@ -1023,74 +1038,74 @@ mod tests {
 
     #[test]
     fn test_footer_normal_mode_starts_with_app_name() {
-        let spans = footer_spans(InputMode::Normal);
+        let spans = footer_spans(InputMode::Normal, LayoutMode::Single);
         assert!(spans[0].content.starts_with("crmux v"));
     }
 
     #[test]
     fn test_footer_normal_mode_has_no_mode_indicator() {
-        let spans = footer_spans(InputMode::Normal);
+        let spans = footer_spans(InputMode::Normal, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(!text.contains("--"));
     }
 
     #[test]
     fn test_footer_input_mode_starts_with_app_name() {
-        let spans = footer_spans(InputMode::Input);
+        let spans = footer_spans(InputMode::Input, LayoutMode::Single);
         assert!(spans[0].content.starts_with("crmux v"));
     }
 
     #[test]
     fn test_footer_input_mode_has_insert_indicator() {
-        let spans = footer_spans(InputMode::Input);
+        let spans = footer_spans(InputMode::Input, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("-- INSERT --"));
     }
 
     #[test]
     fn test_footer_title_mode_starts_with_app_name() {
-        let spans = footer_spans(InputMode::Title);
+        let spans = footer_spans(InputMode::Title, LayoutMode::Single);
         assert!(spans[0].content.starts_with("crmux v"));
     }
 
     #[test]
     fn test_footer_title_mode_has_title_edit_indicator() {
-        let spans = footer_spans(InputMode::Title);
+        let spans = footer_spans(InputMode::Title, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("-- TITLE --"));
     }
 
 #[test]
     fn test_footer_normal_mode_contains_help_key() {
-        let spans = footer_spans(InputMode::Normal);
+        let spans = footer_spans(InputMode::Normal, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("?:Help"), "Normal mode footer should contain '?:Help', got: {text}");
     }
 
     #[test]
     fn test_footer_broadcast_mode_has_broadcast_indicator() {
-        let spans = footer_spans(InputMode::Broadcast);
+        let spans = footer_spans(InputMode::Broadcast, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("-- BROADCAST --"), "Broadcast mode footer should contain '-- BROADCAST --', got: {text}");
     }
 
     #[test]
     fn test_footer_normal_mode_contains_broadcast_key() {
-        let spans = footer_spans(InputMode::Normal);
+        let spans = footer_spans(InputMode::Normal, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("I:Marked"), "Normal mode footer should contain 'I:Marked', got: {text}");
     }
 
     #[test]
     fn test_footer_normal_mode_contains_scroll_keys() {
-        let spans = footer_spans(InputMode::Normal);
+        let spans = footer_spans(InputMode::Normal, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("C-u:Up C-d:Down"), "Normal mode footer should contain 'C-u:Up C-d:Down', got: {text}");
     }
 
     #[test]
     fn test_footer_normal_mode_contains_g_bottom() {
-        let spans = footer_spans(InputMode::Normal);
+        let spans = footer_spans(InputMode::Normal, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("G:Bottom"), "Normal mode footer should contain 'G:Bottom', got: {text}");
     }
@@ -1178,21 +1193,21 @@ mod tests {
 
     #[test]
     fn test_footer_normal_mode_contains_claudeye_key() {
-        let spans = footer_spans(InputMode::Normal);
+        let spans = footer_spans(InputMode::Normal, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("o:Claudeye"), "Normal mode footer should contain 'o:Claudeye', got: {text}");
     }
 
     #[test]
     fn test_footer_spans_input_mode_not_empty() {
-        let spans = footer_spans(InputMode::Input);
+        let spans = footer_spans(InputMode::Input, LayoutMode::Single);
         let text_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
         assert!(text_len > 0, "Input mode footer should produce non-empty text");
     }
 
     #[test]
     fn test_footer_spans_broadcast_mode_not_empty() {
-        let spans = footer_spans(InputMode::Broadcast);
+        let spans = footer_spans(InputMode::Broadcast, LayoutMode::Single);
         let text_len: usize = spans.iter().map(|s| s.content.chars().count()).sum();
         assert!(text_len > 0, "Broadcast mode footer should produce non-empty text");
     }
@@ -1215,20 +1230,20 @@ mod tests {
 
     #[test]
     fn test_footer_scroll_mode_has_scroll_indicator() {
-        let spans = footer_spans(InputMode::Scroll);
+        let spans = footer_spans(InputMode::Scroll, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("-- SCROLL --"), "Scroll mode footer should contain '-- SCROLL --', got: {text}");
     }
 
     #[test]
     fn test_footer_scroll_mode_starts_with_app_name() {
-        let spans = footer_spans(InputMode::Scroll);
+        let spans = footer_spans(InputMode::Scroll, LayoutMode::Single);
         assert!(spans[0].content.starts_with("crmux v"));
     }
 
     #[test]
     fn test_footer_scroll_mode_contains_keybindings() {
-        let spans = footer_spans(InputMode::Scroll);
+        let spans = footer_spans(InputMode::Scroll, LayoutMode::Single);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
         assert!(text.contains("j/k:Scroll"), "Scroll mode footer should contain 'j/k:Scroll', got: {text}");
         assert!(text.contains("Esc:Back"), "Scroll mode footer should contain 'Esc:Back', got: {text}");
