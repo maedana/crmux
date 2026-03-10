@@ -59,32 +59,11 @@ crmux
 ### Keybindings
 
 Keybindings are shown in the app footer. Run `crmux -h` or press `?` in the app to see all available keybindings.
+## Claude Code Hook Setup (Recommended)
 
-## Claude Code Hook Setup (Optional)
-
-By configuring Claude Code hooks, crmux can display additional session metadata such as the model name and context window usage.
+Configuring `statusLine` enables crmux to display model name, context window usage, auto-generated session titles, and other metadata in the sidebar. This is strongly recommended for the best experience.
 
 Add the following to `~/.claude/settings.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "crmux rpc session-start"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-To also display model display name (e.g. "Opus") and context window usage percentage, configure a `statusLine` command. The simplest setup uses `crmux rpc status-update` directly:
 
 ```json
 {
@@ -129,6 +108,31 @@ fi
     "type": "command",
     "command": "ccstatus",
     "padding": 0
+  }
+}
+```
+
+</details>
+
+<details>
+<summary>Optional: SessionStart hook</summary>
+
+Adding a `SessionStart` hook lets crmux receive session metadata immediately when Claude Code starts, rather than waiting for the first `statusLine` update. This is not required but can be useful if you want instant session detection.
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "crmux rpc session-start"
+          }
+        ]
+      }
+    ]
   }
 }
 ```

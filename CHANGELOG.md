@@ -7,6 +7,10 @@
 - Extract slash command name from auto title prompt
 - Display worktree name in sidebar session list
 - Auto-disable IME (fcitx5) on Normal mode return
+- Number key (1-9) session selection with sidebar numbering
+- EvenHorizontal, EvenVertical, MainVertical, MainHorizontal layout modes (`v` key to cycle)
+- Session state color and pulse on preview pane borders
+- Emoji state icons (⚡⚠️💤) replacing text labels for consistent width
 
 ### Fixed
 - Handle compound SGR parameters in reverse-video cursor detection
@@ -16,6 +20,8 @@
 - Compact model name display by removing spaces and parenthesis padding
 - Use tmux-claude-state 0.4.0 from crates.io
 - Replace DarkGray with named color constants for sidebar elements
+- Decouple mark from grid layout, add independent layout toggle
+- Hide pane_id from preview title when session title is unavailable
 
 ## 0.11.0
 
