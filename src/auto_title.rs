@@ -90,10 +90,6 @@ pub fn extract_last_prompt_from_jsonl(file: &std::fs::File) -> Option<String> {
         })();
         if let Some(text) = text {
             let text = extract_slash_command(&text).unwrap_or(text);
-            if text.len() > 80 {
-                let truncated: String = text.chars().take(80).collect();
-                return Some(format!("{truncated}…"));
-            }
             return Some(text);
         }
     }
@@ -358,15 +354,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_extract_last_prompt_truncated() {
-        let long_text = "a".repeat(100);
-        let jsonl = format!(r#"{{"type":"user","message":{{"content":"{long_text}"}}}}"#);
-        let (_dir, file) = write_tempfile(&jsonl);
-        let result = super::extract_last_prompt_from_jsonl(&file).unwrap();
-        assert_eq!(result.chars().count(), 81); // 80 + "…"
-        assert!(result.ends_with('…'));
-    }
 
     #[test]
     fn test_extract_last_prompt_skips_non_user() {
