@@ -134,9 +134,9 @@ pub const fn permission_mode_icon(mode: &PermissionMode) -> &'static str {
 /// Map a `ClaudeState` to a short label.
 pub const fn state_label(state: &ClaudeState) -> &'static str {
     match state {
-        ClaudeState::Working => "Running",
-        ClaudeState::WaitingForApproval => "Approval",
-        ClaudeState::Idle => "Idle",
+        ClaudeState::Working => "⚡",
+        ClaudeState::WaitingForApproval => "⚠️",
+        ClaudeState::Idle => "💤",
     }
 }
 
@@ -814,9 +814,9 @@ fn draw_sessions_list(
             ));
             status_spans.push(Span::raw(" "));
         }
-        status_spans.push(Span::styled(label, Style::default().fg(text_color)));
+        status_spans.push(Span::raw(label));
         status_spans.push(Span::raw(" "));
-        status_spans.push(Span::styled(elapsed, Style::default().fg(text_color)));
+        status_spans.push(Span::raw(elapsed));
         let status_line = Line::from(status_spans);
         let is_editing_title = is_selected && input_mode == InputMode::Title;
         let combined_line = if is_editing_title {
@@ -930,9 +930,9 @@ mod tests {
 
     #[test]
     fn test_state_label() {
-        assert_eq!(state_label(&ClaudeState::Working), "Running");
-        assert_eq!(state_label(&ClaudeState::WaitingForApproval), "Approval");
-        assert_eq!(state_label(&ClaudeState::Idle), "Idle");
+        assert_eq!(state_label(&ClaudeState::Working), "⚡");
+        assert_eq!(state_label(&ClaudeState::WaitingForApproval), "⚠️");
+        assert_eq!(state_label(&ClaudeState::Idle), "💤");
     }
 
     #[test]
