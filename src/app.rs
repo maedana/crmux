@@ -179,6 +179,8 @@ fn detect_cursor_by_reverse_video(lines: &[&str], start: usize) -> Option<(u16, 
 }
 
 /// Detect cursor position by finding a `❯ ` prompt pattern (bottom-up scan).
+// Character width is at most 2, so usize→u16 truncation never occurs.
+#[allow(clippy::cast_possible_truncation)]
 fn detect_cursor_by_prompt(lines: &[&str], start: usize) -> Option<(u16, u16)> {
     for (i, line) in lines[start..].iter().enumerate().rev() {
         let row = start + i;
