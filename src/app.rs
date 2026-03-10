@@ -476,7 +476,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         state.preview_contents.clear();
                     }
                 }
-                crate::state::LayoutMode::Grid | crate::state::LayoutMode::EvenHorizontal | crate::state::LayoutMode::EvenVertical => {
+                crate::state::LayoutMode::Grid | crate::state::LayoutMode::EvenHorizontal | crate::state::LayoutMode::EvenVertical | crate::state::LayoutMode::MainVertical | crate::state::LayoutMode::MainHorizontal => {
                     // Show all filtered sessions in a grid (scrollback only for focused pane)
                     let selected_pane = state.selected_pane_id().map(String::from);
                     let entries: Vec<PreviewEntry> = filtered
@@ -504,7 +504,26 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                             }
                         })
                         .collect();
-                    state.preview_contents = entries;
+                    // For MainVertical/MainHorizontal, put selected session first
+                    if matches!(state.layout_mode, crate::state::LayoutMode::MainVertical | crate::state::LayoutMode::MainHorizontal) {
+                        if let Some(sel_pane) = selected_pane.as_deref() {
+                            let mut sorted = Vec::with_capacity(entries.len());
+                            let mut rest = Vec::new();
+                            for e in entries {
+                                if e.pane_id == sel_pane && sorted.is_empty() {
+                                    sorted.push(e);
+                                } else {
+                                    rest.push(e);
+                                }
+                            }
+                            sorted.extend(rest);
+                            state.preview_contents = sorted;
+                        } else {
+                            state.preview_contents = entries;
+                        }
+                    } else {
+                        state.preview_contents = entries;
+                    }
                 }
             }
 
@@ -539,6 +558,14 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         // Vertical split: stacked, height divided by n
                         state.preview_height =
                             total_preview_height / (preview_count.max(1) as u16);
+                    }
+                    crate::state::LayoutMode::MainVertical => {
+                        // Main pane gets full height
+                        state.preview_height = total_preview_height;
+                    }
+                    crate::state::LayoutMode::MainHorizontal => {
+                        // Main pane gets 60% height
+                        state.preview_height = total_preview_height * 60 / 100;
                     }
                     crate::state::LayoutMode::Single | crate::state::LayoutMode::Grid => {
                         // Grid layout

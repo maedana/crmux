@@ -282,6 +282,10 @@ pub enum LayoutMode {
     EvenHorizontal,
     /// Show all filtered sessions in even vertical split.
     EvenVertical,
+    /// Main pane on the left (60%), remaining stacked vertically on the right.
+    MainVertical,
+    /// Main pane on top (60%), remaining side by side on the bottom.
+    MainHorizontal,
 }
 
 /// Input mode for the sidebar.
@@ -545,7 +549,9 @@ impl AppState {
             LayoutMode::Single => LayoutMode::Grid,
             LayoutMode::Grid => LayoutMode::EvenHorizontal,
             LayoutMode::EvenHorizontal => LayoutMode::EvenVertical,
-            LayoutMode::EvenVertical => LayoutMode::Single,
+            LayoutMode::EvenVertical => LayoutMode::MainVertical,
+            LayoutMode::MainVertical => LayoutMode::MainHorizontal,
+            LayoutMode::MainHorizontal => LayoutMode::Single,
         };
     }
 
@@ -2908,6 +2914,10 @@ mod tests {
         assert_eq!(state.layout_mode, LayoutMode::EvenHorizontal);
         state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::EvenVertical);
+        state.cycle_layout_mode();
+        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
+        state.cycle_layout_mode();
+        assert_eq!(state.layout_mode, LayoutMode::MainHorizontal);
         state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::Single);
     }

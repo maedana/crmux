@@ -233,6 +233,8 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'sta
                 LayoutMode::Grid => "[Grid]",
                 LayoutMode::EvenHorizontal => "[EvenH]",
                 LayoutMode::EvenVertical => "[EvenV]",
+                LayoutMode::MainVertical => "[MainV]",
+                LayoutMode::MainHorizontal => "[MainH]",
                 LayoutMode::Single => unreachable!(),
             };
             spans.push(Span::raw(" "));
@@ -245,7 +247,9 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'sta
                 LayoutMode::Single => "v:Grid",
                 LayoutMode::Grid => "v:EvenH",
                 LayoutMode::EvenHorizontal => "v:EvenV",
-                LayoutMode::EvenVertical => "v:Single",
+                LayoutMode::EvenVertical => "v:MainV",
+                LayoutMode::MainVertical => "v:MainH",
+                LayoutMode::MainHorizontal => "v:Single",
             };
             spans.push(Span::raw(format!(" | hjkl:Nav 1-9:Select Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
         }
@@ -418,6 +422,33 @@ fn compute_cell_areas(n: usize, area: Rect, layout_mode: LayoutMode) -> Vec<Rect
                 .constraints(constraints)
                 .split(area)
                 .to_vec()
+        }
+        LayoutMode::MainVertical | LayoutMode::MainHorizontal => {
+            if n <= 1 {
+                return vec![area];
+            }
+            let (main_direction, sub_direction, main_pct, sub_pct) = match layout_mode {
+                LayoutMode::MainVertical => (Direction::Horizontal, Direction::Vertical, 60, 40),
+                _ => (Direction::Vertical, Direction::Horizontal, 60, 40),
+            };
+            let main_split = Layout::default()
+                .direction(main_direction)
+                .constraints([
+                    Constraint::Percentage(main_pct),
+                    Constraint::Percentage(sub_pct),
+                ])
+                .split(area);
+            let mut areas = vec![main_split[0]];
+            let sub_count = n - 1;
+            let sub_constraints: Vec<Constraint> = (0..sub_count)
+                .map(|_| Constraint::Ratio(1, sub_count as u32))
+                .collect();
+            let sub_areas = Layout::default()
+                .direction(sub_direction)
+                .constraints(sub_constraints)
+                .split(main_split[1]);
+            areas.extend(sub_areas.iter());
+            areas
         }
         LayoutMode::Single | LayoutMode::Grid => {
             let (cols, rows) = compute_grid(n, area.width, MIN_PANE_WIDTH);
@@ -615,7 +646,7 @@ Keybindings (Normal mode):
   1-9            Select session by number
   s              Switch to tmux pane
   Space          Mark session (for filtering and broadcast)
-  v              Cycle layout (Single/Grid/EvenH/EvenV)
+  v              Cycle layout (Single/Grid/EvenH/EvenV/MainV/MainH)
   i              Enter input mode (send keys to the selected session)
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
@@ -1224,6 +1255,77 @@ mod tests {
     fn test_grid_row_items_5_panes_3_cols() {
         // 5 panes, 3 cols → [3, 2]
         assert_eq!(grid_row_items(5, 3), vec![3, 2]);
+    }
+
+    // --- compute_cell_areas tests ---
+
+    #[test]
+    fn test_compute_cell_areas_main_vertical_3_panes() {
+        let area = Rect::new(0, 0, 100, 40);
+        let areas = compute_cell_areas(3, area, LayoutMode::MainVertical);
+        assert_eq!(areas.len(), 3);
+        // Main pane (left) should be ~60% width
+        assert!(areas[0].width >= 58 && areas[0].width <= 62, "main width: {}", areas[0].width);
+        assert_eq!(areas[0].height, 40);
+        // Sub panes should be on the right, stacked vertically
+        assert!(areas[1].width >= 38 && areas[1].width <= 42, "sub width: {}", areas[1].width);
+        assert_eq!(areas[1].height, 20);
+        assert_eq!(areas[2].height, 20);
+        // Sub panes should be at same x position
+        assert_eq!(areas[1].x, areas[2].x);
+    }
+
+    #[test]
+    fn test_compute_cell_areas_main_horizontal_3_panes() {
+        let area = Rect::new(0, 0, 100, 40);
+        let areas = compute_cell_areas(3, area, LayoutMode::MainHorizontal);
+        assert_eq!(areas.len(), 3);
+        // Main pane (top) should be ~60% height
+        assert!(areas[0].height >= 23 && areas[0].height <= 25, "main height: {}", areas[0].height);
+        assert_eq!(areas[0].width, 100);
+        // Sub panes should be on the bottom, side by side
+        assert_eq!(areas[1].width, 50);
+        assert_eq!(areas[2].width, 50);
+        assert_eq!(areas[1].y, areas[2].y);
+    }
+
+    #[test]
+    fn test_compute_cell_areas_main_vertical_1_pane() {
+        let area = Rect::new(0, 0, 100, 40);
+        let areas = compute_cell_areas(1, area, LayoutMode::MainVertical);
+        assert_eq!(areas.len(), 1);
+        assert_eq!(areas[0], area);
+    }
+
+    #[test]
+    fn test_compute_cell_areas_main_horizontal_1_pane() {
+        let area = Rect::new(0, 0, 100, 40);
+        let areas = compute_cell_areas(1, area, LayoutMode::MainHorizontal);
+        assert_eq!(areas.len(), 1);
+        assert_eq!(areas[0], area);
+    }
+
+    #[test]
+    fn test_footer_main_vertical_label_and_next() {
+        let spans = footer_spans(InputMode::Normal, LayoutMode::MainVertical);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("[MainV]"), "should contain [MainV], got: {text}");
+        assert!(text.contains("v:MainH"), "should contain v:MainH, got: {text}");
+    }
+
+    #[test]
+    fn test_footer_main_horizontal_label_and_next() {
+        let spans = footer_spans(InputMode::Normal, LayoutMode::MainHorizontal);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("[MainH]"), "should contain [MainH], got: {text}");
+        assert!(text.contains("v:Single"), "should contain v:Single, got: {text}");
+    }
+
+    #[test]
+    fn test_footer_even_vertical_next_is_main_v() {
+        let spans = footer_spans(InputMode::Normal, LayoutMode::EvenVertical);
+        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(text.contains("v:MainV"), "should contain v:MainV, got: {text}");
     }
 
     #[test]
