@@ -472,7 +472,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         state.preview_contents.clear();
                     }
                 }
-                crate::state::LayoutMode::Grid => {
+                crate::state::LayoutMode::Grid | crate::state::LayoutMode::EvenHorizontal | crate::state::LayoutMode::EvenVertical => {
                     // Show all filtered sessions in a grid (scrollback only for focused pane)
                     let filtered: Vec<_> = state.filtered_sessions().into_iter().cloned().collect();
                     let selected_pane = state.selected_pane_id().map(String::from);
@@ -527,14 +527,25 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             let total_preview_height = frame.area.height.saturating_sub(5);
             let preview_count = state.preview_contents.len();
             if preview_count > 1 {
-                let available_width = frame.area.width.saturating_sub(30);
-                let (_cols, rows) =
-                    ui::compute_grid(preview_count, available_width, ui::MIN_PANE_WIDTH);
-                // Grid rows are bounded by terminal height, well within u16.
                 #[allow(clippy::cast_possible_truncation)]
-                {
-                    state.preview_height =
-                        total_preview_height / (rows.max(1) as u16);
+                match state.layout_mode {
+                    crate::state::LayoutMode::EvenHorizontal => {
+                        // Horizontal split: all panes side by side, full height each
+                        state.preview_height = total_preview_height;
+                    }
+                    crate::state::LayoutMode::EvenVertical => {
+                        // Vertical split: stacked, height divided by n
+                        state.preview_height =
+                            total_preview_height / (preview_count.max(1) as u16);
+                    }
+                    _ => {
+                        // Grid layout
+                        let available_width = frame.area.width.saturating_sub(30);
+                        let (_cols, rows) =
+                            ui::compute_grid(preview_count, available_width, ui::MIN_PANE_WIDTH);
+                        state.preview_height =
+                            total_preview_height / (rows.max(1) as u16);
+                    }
                 }
             } else {
                 state.preview_height = total_preview_height;

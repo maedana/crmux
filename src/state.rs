@@ -278,6 +278,10 @@ pub enum LayoutMode {
     Single,
     /// Show all filtered sessions in a grid.
     Grid,
+    /// Show all filtered sessions in even horizontal split.
+    EvenHorizontal,
+    /// Show all filtered sessions in even vertical split.
+    EvenVertical,
 }
 
 /// Input mode for the sidebar.
@@ -535,11 +539,13 @@ impl AppState {
         self.selected_session().map(|s| s.pane_id.as_str())
     }
 
-    /// Cycle the layout mode: Single → Grid → Single.
+    /// Cycle the layout mode: Single → Grid → EvenHorizontal → EvenVertical → Single.
     pub fn cycle_layout_mode(&mut self) {
         self.layout_mode = match self.layout_mode {
             LayoutMode::Single => LayoutMode::Grid,
-            LayoutMode::Grid => LayoutMode::Single,
+            LayoutMode::Grid => LayoutMode::EvenHorizontal,
+            LayoutMode::EvenHorizontal => LayoutMode::EvenVertical,
+            LayoutMode::EvenVertical => LayoutMode::Single,
         };
     }
 
@@ -2899,6 +2905,10 @@ mod tests {
         assert_eq!(state.layout_mode, LayoutMode::Single);
         state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::Grid);
+        state.cycle_layout_mode();
+        assert_eq!(state.layout_mode, LayoutMode::EvenHorizontal);
+        state.cycle_layout_mode();
+        assert_eq!(state.layout_mode, LayoutMode::EvenVertical);
         state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::Single);
     }

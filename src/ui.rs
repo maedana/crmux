@@ -193,7 +193,7 @@ pub fn draw(
     let selected_pane_id = sessions
         .get(selected_index)
         .map(|s| s.pane_id.as_str());
-    let preview_cursor = draw_right_panel(f, preview_contents, input_mode, input_buffer, h_chunks[1], selected_pane_id, preview_scroll);
+    let preview_cursor = draw_preview_panes(f, preview_contents, h_chunks[1], selected_pane_id, preview_scroll, layout_mode);
 
     // Footer: app name + mode indicator + keybindings (full width)
     let footer_line = footer_spans(input_mode, layout_mode);
@@ -226,18 +226,28 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'sta
         concat!("crmux v", env!("CARGO_PKG_VERSION")),
         Style::default().fg(Color::White),
     )];
-    if layout_mode == LayoutMode::Grid {
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled(
-            "[Grid]",
-            Style::default().fg(Color::Yellow),
-        ));
+    match layout_mode {
+        LayoutMode::Single => {}
+        LayoutMode::Grid => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled("[Grid]", Style::default().fg(Color::Yellow)));
+        }
+        LayoutMode::EvenHorizontal => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled("[EvenH]", Style::default().fg(Color::Yellow)));
+        }
+        LayoutMode::EvenVertical => {
+            spans.push(Span::raw(" "));
+            spans.push(Span::styled("[EvenV]", Style::default().fg(Color::Yellow)));
+        }
     }
     match input_mode {
         InputMode::Normal => {
             let v_label = match layout_mode {
                 LayoutMode::Single => "v:Grid",
-                LayoutMode::Grid => "v:Single",
+                LayoutMode::Grid => "v:EvenH",
+                LayoutMode::EvenHorizontal => "v:EvenV",
+                LayoutMode::EvenVertical => "v:Single",
             };
             spans.push(Span::raw(format!(" | hjkl:Nav 1-9:Select Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
         }
@@ -277,19 +287,6 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'sta
     spans
 }
 
-/// Draw the right panel: preview pane(s).
-/// Returns the cursor position (x, y) for the selected preview pane's bottom-left (IME anchor).
-fn draw_right_panel(
-    f: &mut ratatui::Frame,
-    preview_contents: &[PreviewEntry],
-    _input_mode: InputMode,
-    _input_buffer: &str,
-    area: ratatui::layout::Rect,
-    selected_pane_id: Option<&str>,
-    preview_scroll: u16,
-) -> Option<(u16, u16)> {
-    draw_preview_panes(f, preview_contents, area, selected_pane_id, preview_scroll)
-}
 
 /// Compute cursor position for IME anchor within a preview pane.
 ///
@@ -345,6 +342,7 @@ fn draw_preview_panes(
     area: ratatui::layout::Rect,
     selected_pane_id: Option<&str>,
     preview_scroll: u16,
+    layout_mode: LayoutMode,
 ) -> Option<(u16, u16)> {
     if preview_contents.is_empty() {
         let preview = Paragraph::new("No session selected").block(
@@ -391,75 +389,116 @@ fn draw_preview_panes(
         return cursor_pos;
     }
 
-    // Multiple previews: grid layout
-    let n = preview_contents.len();
-    let (cols, rows) = compute_grid(n, area.width, MIN_PANE_WIDTH);
-    let row_items = grid_row_items(n, cols);
+    // Multiple previews: layout depends on mode
+    let cell_areas = compute_cell_areas(preview_contents.len(), area, layout_mode);
 
-    // Grid row/col counts are bounded by terminal dimensions, well within u32.
-    #[allow(clippy::cast_possible_truncation)]
-    let row_constraints: Vec<Constraint> = row_items
-        .iter()
-        .map(|_| Constraint::Ratio(1, rows as u32))
-        .collect();
-    let row_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints(row_constraints)
-        .split(area);
-
-    let mut idx = 0;
     let mut cursor_pos = None;
-    for (row_idx, &items_in_row) in row_items.iter().enumerate() {
-        // items_in_row is bounded by grid cols, well within u32.
-        #[allow(clippy::cast_possible_truncation)]
-        let col_constraints: Vec<Constraint> = (0..items_in_row)
-            .map(|_| Constraint::Ratio(1, items_in_row as u32))
-            .collect();
-        let col_chunks = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints(col_constraints)
-            .split(row_chunks[row_idx]);
-
-        for col_idx in 0..items_in_row {
-            let entry = &preview_contents[idx];
-            let cell_area = col_chunks[col_idx];
-            let preview_text = entry
-                .content
-                .as_str()
-                .into_text()
-                .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
-            #[allow(clippy::cast_possible_truncation)]
-            let text_lines = preview_text.lines.len() as u16;
-            let inner_height = cell_area.height.saturating_sub(2);
-            let is_focused = selected_pane_id == Some(entry.pane_id.as_str());
-            let scroll_y = if is_focused {
-                let max_scroll = text_lines.saturating_sub(inner_height);
-                let effective_scroll = preview_scroll.min(max_scroll);
-                max_scroll.saturating_sub(effective_scroll)
-            } else {
-                text_lines.saturating_sub(inner_height)
-            };
-            let title_prefix = if is_focused { SELECTED_ICON } else { "" };
-            let title = preview_title(&entry.name, &entry.pane_id, entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
-            let mut block = Block::default()
-                .title(format!("{title_prefix}{title}"))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Gray));
-            if let Some(info) = entry.git_diff.as_ref() {
-                block = block.title_bottom(git_diff_line(info));
-            }
-            let preview = Paragraph::new(preview_text)
-                .block(block)
-                .scroll((scroll_y, 0));
-            if is_focused {
-                let inner = Block::default().borders(Borders::ALL).inner(cell_area);
-                cursor_pos = compute_cursor_pos(inner, entry.cursor_pos, scroll_y);
-            }
-            f.render_widget(preview, cell_area);
-            idx += 1;
+    for (i, entry) in preview_contents.iter().enumerate() {
+        let cell_area = cell_areas[i];
+        let pos = render_preview_cell(f, entry, cell_area, selected_pane_id, preview_scroll);
+        if pos.is_some() {
+            cursor_pos = pos;
         }
     }
     cursor_pos
+}
+
+/// Compute cell areas for multiple preview panes based on layout mode.
+#[allow(clippy::cast_possible_truncation)]
+fn compute_cell_areas(n: usize, area: Rect, layout_mode: LayoutMode) -> Vec<Rect> {
+    match layout_mode {
+        LayoutMode::EvenHorizontal => {
+            let constraints: Vec<Constraint> = (0..n)
+                .map(|_| Constraint::Ratio(1, n as u32))
+                .collect();
+            Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints(constraints)
+                .split(area)
+                .to_vec()
+        }
+        LayoutMode::EvenVertical => {
+            let constraints: Vec<Constraint> = (0..n)
+                .map(|_| Constraint::Ratio(1, n as u32))
+                .collect();
+            Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(constraints)
+                .split(area)
+                .to_vec()
+        }
+        _ => {
+            let (cols, rows) = compute_grid(n, area.width, MIN_PANE_WIDTH);
+            let row_items = grid_row_items(n, cols);
+            let row_constraints: Vec<Constraint> = row_items
+                .iter()
+                .map(|_| Constraint::Ratio(1, rows as u32))
+                .collect();
+            let row_chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .constraints(row_constraints)
+                .split(area);
+            let mut areas = Vec::with_capacity(n);
+            for (row_idx, &items_in_row) in row_items.iter().enumerate() {
+                let col_constraints: Vec<Constraint> = (0..items_in_row)
+                    .map(|_| Constraint::Ratio(1, items_in_row as u32))
+                    .collect();
+                let col_chunks = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints(col_constraints)
+                    .split(row_chunks[row_idx]);
+                for col_idx in 0..items_in_row {
+                    areas.push(col_chunks[col_idx]);
+                }
+            }
+            areas
+        }
+    }
+}
+
+/// Render a single preview cell within a grid/even layout.
+fn render_preview_cell(
+    f: &mut ratatui::Frame,
+    entry: &PreviewEntry,
+    cell_area: Rect,
+    selected_pane_id: Option<&str>,
+    preview_scroll: u16,
+) -> Option<(u16, u16)> {
+    let preview_text = entry
+        .content
+        .as_str()
+        .into_text()
+        .unwrap_or_else(|_| Text::raw(entry.content.as_str()));
+    #[allow(clippy::cast_possible_truncation)]
+    let text_lines = preview_text.lines.len() as u16;
+    let inner_height = cell_area.height.saturating_sub(2);
+    let is_focused = selected_pane_id == Some(entry.pane_id.as_str());
+    let scroll_y = if is_focused {
+        let max_scroll = text_lines.saturating_sub(inner_height);
+        let effective_scroll = preview_scroll.min(max_scroll);
+        max_scroll.saturating_sub(effective_scroll)
+    } else {
+        text_lines.saturating_sub(inner_height)
+    };
+    let title_prefix = if is_focused { SELECTED_ICON } else { "" };
+    let title = preview_title(&entry.name, &entry.pane_id, entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
+    let mut block = Block::default()
+        .title(format!("{title_prefix}{title}"))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Gray));
+    if let Some(info) = entry.git_diff.as_ref() {
+        block = block.title_bottom(git_diff_line(info));
+    }
+    let preview = Paragraph::new(preview_text)
+        .block(block)
+        .scroll((scroll_y, 0));
+    let mut cursor = None;
+    if is_focused {
+        let inner = Block::default().borders(Borders::ALL).inner(cell_area);
+        cursor = compute_cursor_pos(inner, entry.cursor_pos, scroll_y);
+    }
+    f.render_widget(preview, cell_area);
+    cursor
 }
 
 /// Draw the tab bar for project filtering.
@@ -583,7 +622,7 @@ Keybindings (Normal mode):
   1-9            Select session by number
   s              Switch to tmux pane
   Space          Mark session (for filtering and broadcast)
-  v              Toggle layout (Single <-> Grid)
+  v              Cycle layout (Single/Grid/EvenH/EvenV)
   i              Enter input mode (send keys to the selected session)
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)

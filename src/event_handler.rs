@@ -1620,6 +1620,15 @@ mod tests {
         let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
         assert_eq!(action, Action::Continue);
         assert_eq!(state.layout_mode, LayoutMode::Grid);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.layout_mode, LayoutMode::EvenHorizontal);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.layout_mode, LayoutMode::EvenVertical);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.layout_mode, LayoutMode::Single);
     }
 
     // --- number keys select session ---
