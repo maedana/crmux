@@ -268,6 +268,9 @@ pub struct PreviewEntry {
     pub git_diff: Option<GitDiffInfo>,
 }
 
+/// Maximum number of sessions selectable by number keys (1-9).
+pub const MAX_NUMBER_KEYS: usize = 9;
+
 /// Layout mode for the preview area.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LayoutMode {

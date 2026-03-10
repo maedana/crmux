@@ -239,7 +239,7 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'sta
                 LayoutMode::Single => "v:Grid",
                 LayoutMode::Grid => "v:Single",
             };
-            spans.push(Span::raw(format!(" | hjkl:Nav Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
+            spans.push(Span::raw(format!(" | hjkl:Nav 1-9:Select Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -580,6 +580,7 @@ Keybindings (Normal mode):
   Ctrl+d         Scroll preview down (half page)
   gg             Scroll preview to top
   G              Scroll preview to bottom
+  1-9            Select session by number
   s              Switch to tmux pane
   Space          Mark session (for filtering and broadcast)
   v              Toggle layout (Single <-> Grid)
@@ -724,8 +725,9 @@ fn draw_sessions_list(
         };
 
         let title_prefix = if is_selected { SELECTED_ICON } else { "" };
+        let number_prefix = if idx < crate::state::MAX_NUMBER_KEYS { format!("{}.", idx + 1) } else { String::new() };
 
-        let project_part = format!("{title_prefix}{}", &session.project_name);
+        let project_part = format!("{title_prefix}{number_prefix}{}", &session.project_name);
         let branch_part = match (&session.git_branch, &session.worktree_name) {
             (Some(branch), Some(wt)) => format!(" ({branch}/{wt})"),
             (Some(branch), None) => format!(" ({branch})"),

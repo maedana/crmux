@@ -199,6 +199,14 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.show_help = true;
             Action::Continue
         }
+        KeyCode::Char(c @ '1'..='9') => {
+            let idx = (c as usize) - ('1' as usize);
+            if idx < crate::state::MAX_NUMBER_KEYS && idx < state.filtered_sessions().len() {
+                state.selected_index = idx;
+                state.preview_scroll = 0;
+            }
+            Action::Continue
+        }
         _ => Action::Continue,
     }
 }
@@ -534,6 +542,34 @@ mod tests {
             worktree_name: None,
             git_diff: None,
         });
+        state
+    }
+
+    fn make_state_with_sessions(n: u32) -> AppState {
+        use crate::state::ManagedSession;
+        let mut state = AppState::new(None);
+        for i in 0..n {
+            state.sessions.push(ManagedSession {
+                pid: 100 + i,
+                pane_id: format!("%{}", i + 1),
+                project_name: format!("project-{}", i + 1),
+                state: ClaudeState::Idle,
+                state_changed_at: Instant::now(),
+                marked: false,
+                title: None,
+                session_id: None,
+                model: None,
+                context_percent: None,
+                cwd: format!("/home/user/project-{}", i + 1),
+                git_branch: None,
+                auto_title: None,
+                permission_mode: tmux_claude_state::claude_state::PermissionMode::AskBeforeEdits,
+                jsonl_mtime: None,
+                has_worked: false,
+                worktree_name: None,
+                git_diff: None,
+            });
+        }
         state
     }
 
@@ -1584,6 +1620,40 @@ mod tests {
         let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
         assert_eq!(action, Action::Continue);
         assert_eq!(state.layout_mode, LayoutMode::Grid);
+    }
+
+    // --- number keys select session ---
+
+    #[test]
+    fn test_number_1_selects_first_session() {
+        let mut state = make_state_with_sessions(3);
+        state.selected_index = 2;
+        let action = handle_key_event(&make_key_event(KeyCode::Char('1')), &mut state);
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.selected_index, 0);
+    }
+
+    #[test]
+    fn test_number_3_selects_third_session() {
+        let mut state = make_state_with_sessions(5);
+        state.selected_index = 0;
+        handle_key_event(&make_key_event(KeyCode::Char('3')), &mut state);
+        assert_eq!(state.selected_index, 2);
+    }
+
+    #[test]
+    fn test_number_beyond_session_count_is_noop() {
+        let mut state = make_state_with_sessions(2);
+        state.selected_index = 0;
+        handle_key_event(&make_key_event(KeyCode::Char('5')), &mut state);
+        assert_eq!(state.selected_index, 0);
+    }
+
+    #[test]
+    fn test_number_on_empty_sessions_is_noop() {
+        let mut state = AppState::new(None);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('1')), &mut state);
+        assert_eq!(action, Action::Continue);
     }
 
 }
