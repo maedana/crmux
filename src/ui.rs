@@ -231,21 +231,6 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'sta
         concat!("crmux v", env!("CARGO_PKG_VERSION")),
         Style::default().fg(Color::White),
     )];
-    match layout_mode {
-        LayoutMode::Single => {}
-        mode => {
-            let label = match mode {
-                LayoutMode::Grid => "[Grid]",
-                LayoutMode::EvenHorizontal => "[EvenH]",
-                LayoutMode::EvenVertical => "[EvenV]",
-                LayoutMode::MainVertical => "[MainV]",
-                LayoutMode::MainHorizontal => "[MainH]",
-                LayoutMode::Single => unreachable!(),
-            };
-            spans.push(Span::raw(" "));
-            spans.push(Span::styled(label, Style::default().fg(Color::Yellow)));
-        }
-    }
     match input_mode {
         InputMode::Normal => {
             let v_label = match layout_mode {
@@ -1324,7 +1309,6 @@ mod tests {
     fn test_footer_main_vertical_label_and_next() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::MainVertical);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("[MainV]"), "should contain [MainV], got: {text}");
         assert!(text.contains("v:MainH"), "should contain v:MainH, got: {text}");
     }
 
@@ -1332,7 +1316,6 @@ mod tests {
     fn test_footer_main_horizontal_label_and_next() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::MainHorizontal);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("[MainH]"), "should contain [MainH], got: {text}");
         assert!(text.contains("v:Single"), "should contain v:Single, got: {text}");
     }
 
