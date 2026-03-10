@@ -605,15 +605,14 @@ impl AppState {
             }
             if let (Some(session_id), cwd) = (&session.session_id, &session.cwd) {
                 // Skip if the JSONL file's mtime hasn't changed since last read
-                if let Some(path) = jsonl_path(cwd, session_id) {
-                    if let Ok(meta) = std::fs::metadata(&path) {
-                        if let Ok(mtime) = meta.modified() {
-                            if session.jsonl_mtime == Some(mtime) {
-                                continue;
-                            }
-                            session.jsonl_mtime = Some(mtime);
-                        }
+                if let Some(path) = jsonl_path(cwd, session_id)
+                    && let Ok(meta) = std::fs::metadata(&path)
+                    && let Ok(mtime) = meta.modified()
+                {
+                    if session.jsonl_mtime == Some(mtime) {
+                        continue;
                     }
+                    session.jsonl_mtime = Some(mtime);
                 }
 
                 session.auto_title =
@@ -686,20 +685,20 @@ impl AppState {
                 .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             // Switch permission mode if requested
-            if let Some(target_mode) = msg.params.get("mode").and_then(|v| v.as_str()) {
-                if let Some(session) = self.find_session_by_pane_id(&pane_id) {
-                    let count =
-                        permission_mode_switch_count(&session.permission_mode, target_mode);
-                    for _ in 0..count {
-                        crate::event_handler::run_tmux(&[
-                            "send-keys", "-t", &pane_id, "BTab",
-                        ]);
-                        std::thread::sleep(std::time::Duration::from_millis(100));
-                    }
-                    if count > 0 {
-                        // Wait for mode switch to settle
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                    }
+            if let Some(target_mode) = msg.params.get("mode").and_then(|v| v.as_str())
+                && let Some(session) = self.find_session_by_pane_id(&pane_id)
+            {
+                let count =
+                    permission_mode_switch_count(&session.permission_mode, target_mode);
+                for _ in 0..count {
+                    crate::event_handler::run_tmux(&[
+                        "send-keys", "-t", &pane_id, "BTab",
+                    ]);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                if count > 0 {
+                    // Wait for mode switch to settle
+                    std::thread::sleep(std::time::Duration::from_millis(200));
                 }
             }
             // Use paste-buffer instead of send-keys -l.
