@@ -179,7 +179,7 @@ crmux-plan-search <project>
 - Persistent usage/limit display: always show `/usage` info (remaining requests, reset time) in the sidebar
 - Incremental search: quickly find and jump to sessions by filtering with search keywords
 - Session bookmarks: save named groups of marked sessions as custom tabs alongside All/project tabs
-- State persistence: persist job queue and other state across restarts
+- State persistence: persist job queue and other state across restarts (hash the tmux snapshot—windows, session IDs, panes—and restore previous state when the fingerprint matches on next launch)
 - Core library extraction: extract tmux operations and session state management into a UI-independent library crate, including session creation and lifecycle management
 - Tauri desktop app: desktop application using the core library with HTML/CSS rendering (ANSI→HTML conversion) for flexible layout
 
