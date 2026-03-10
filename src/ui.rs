@@ -780,16 +780,17 @@ fn draw_sessions_list(
 
         let mark_span = Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
 
-        let model_line = if let Some(ref model) = session.model {
-            let compact_model = model.replace(' ', "");
-            let model_text = session.context_percent.map_or_else(
-                || compact_model.clone(),
-                |pct| format!("{compact_model}({pct}%)"),
-            );
-            Line::from(Span::styled(model_text, Style::default().fg(MODEL_COLOR)))
-        } else {
-            Line::from("")
-        };
+        let model_line = session.model.as_ref().map_or_else(
+            || Line::from(""),
+            |model| {
+                let compact_model = model.replace(' ', "");
+                let model_text = session.context_percent.map_or_else(
+                    || compact_model.clone(),
+                    |pct| format!("{compact_model}({pct}%)"),
+                );
+                Line::from(Span::styled(model_text, Style::default().fg(MODEL_COLOR)))
+            },
+        );
 
         let mut status_spans = Vec::new();
         let mode_icon = permission_mode_icon(&session.permission_mode);

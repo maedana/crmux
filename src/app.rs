@@ -50,10 +50,10 @@ fn strip_osc8_hyperlinks(input: &str) -> String {
 
 /// Capture a tmux pane, strip OSC8 hyperlinks, and trim trailing blank lines.
 fn capture_pane_content(pane_id: &str, scrollback_lines: Option<u16>) -> String {
-    let raw = match scrollback_lines {
-        Some(lines) => capture_pane_with_scrollback(pane_id, lines),
-        None => tmux_claude_state::tmux::capture_pane_with_ansi(pane_id),
-    };
+    let raw = scrollback_lines.map_or_else(
+        || tmux_claude_state::tmux::capture_pane_with_ansi(pane_id),
+        |lines| capture_pane_with_scrollback(pane_id, lines),
+    );
     strip_osc8_hyperlinks(&raw).trim_end().to_string()
 }
 
@@ -538,7 +538,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         state.preview_height =
                             total_preview_height / (preview_count.max(1) as u16);
                     }
-                    _ => {
+                    crate::state::LayoutMode::Single | crate::state::LayoutMode::Grid => {
                         // Grid layout
                         let available_width = frame.area.width.saturating_sub(30);
                         let (_cols, rows) =
