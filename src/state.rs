@@ -540,7 +540,7 @@ impl AppState {
     }
 
     /// Cycle the layout mode: Single → Grid → `EvenHorizontal` → `EvenVertical` → Single.
-    pub fn cycle_layout_mode(&mut self) {
+    pub const fn cycle_layout_mode(&mut self) {
         self.layout_mode = match self.layout_mode {
             LayoutMode::Single => LayoutMode::Grid,
             LayoutMode::Grid => LayoutMode::EvenHorizontal,

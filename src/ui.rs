@@ -124,7 +124,7 @@ pub const fn state_color(state: &ClaudeState) -> Color {
 }
 
 /// Return the icon string for a `PermissionMode`, matching Claude Code's status bar.
-pub fn permission_mode_icon(mode: &PermissionMode) -> &'static str {
+pub const fn permission_mode_icon(mode: &PermissionMode) -> &'static str {
     match mode {
         PermissionMode::PlanMode => "⏸ ",
         PermissionMode::EditAutomatically => "⏵⏵",
