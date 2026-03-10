@@ -1,6 +1,6 @@
 # crmux
 
-A TUI viewer for Claude Code sessions in tmux.
+A session multiplexer for Claude Code in tmux.
 
 Inspired by [cmux](https://www.cmux.dev). crmux brings a similar multi-session management experience using tmux and a terminal UI.
 
@@ -9,6 +9,7 @@ Inspired by [cmux](https://www.cmux.dev). crmux brings a similar multi-session m
 - Switch to any session's tmux pane instantly
 - Send prompts directly via tmux `send-keys` in input mode without leaving crmux
 - Pulse animation to highlight sessions that need attention (approval idle, stale idle)
+- Programmable RPC interface: send prompts to idle sessions by project name from scripts and external tools
 
 ## Demo
 ![gif][1]
