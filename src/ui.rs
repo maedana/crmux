@@ -142,10 +142,10 @@ pub const fn state_label(state: &ClaudeState) -> &'static str {
 }
 
 /// Format a preview pane title: "{name} (branch/worktree) - {title}".
-fn preview_title(name: &str, pane_id: &str, title: Option<&String>, git_branch: Option<&String>, worktree_name: Option<&String>) -> String {
-    let suffix = match title {
-        Some(t) if !t.is_empty() => t.as_str(),
-        _ => pane_id,
+fn preview_title(name: &str, title: Option<&String>, git_branch: Option<&String>, worktree_name: Option<&String>) -> String {
+    let suffix_part = match title {
+        Some(t) if !t.is_empty() => format!(" - {t}"),
+        _ => String::new(),
     };
     let branch_part = match (git_branch, worktree_name) {
         (Some(b), Some(wt)) => format!(" ({b}/{wt})"),
@@ -153,7 +153,7 @@ fn preview_title(name: &str, pane_id: &str, title: Option<&String>, git_branch: 
         (None, Some(wt)) => format!(" ({wt})"),
         (None, None) => String::new(),
     };
-    format!("{name}{branch_part} - {suffix}")
+    format!("{name}{branch_part}{suffix_part}")
 }
 
 /// Draw the full TUI: session list (left) + preview pane (right).
@@ -371,7 +371,7 @@ fn draw_preview_panes(
         let max_scroll = text_lines.saturating_sub(inner_height);
         let effective_scroll = preview_scroll.min(max_scroll);
         let scroll_y = max_scroll.saturating_sub(effective_scroll);
-        let mut title = preview_title(&entry.name, &entry.pane_id, entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
+        let mut title = preview_title(&entry.name, entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
         if preview_scroll > 0 {
             title.push_str(" [SCROLL]");
         }
@@ -504,7 +504,7 @@ fn render_preview_cell(
         text_lines.saturating_sub(inner_height)
     };
     let title_prefix = if is_focused { SELECTED_ICON } else { "" };
-    let title = preview_title(&entry.name, &entry.pane_id, entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
+    let title = preview_title(&entry.name, entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
     let mut block = Block::default()
         .title(format!("{title_prefix}{title}"))
         .borders(Borders::ALL)
@@ -1056,18 +1056,18 @@ mod tests {
     #[test]
     fn test_preview_title_with_title() {
         let title = "development".to_string();
-        assert_eq!(preview_title("crmux", "%1", Some(&title), None, None), "crmux - development");
+        assert_eq!(preview_title("crmux", Some(&title), None, None), "crmux - development");
     }
 
     #[test]
     fn test_preview_title_without_title() {
-        assert_eq!(preview_title("crmux", "%1", None, None, None), "crmux - %1");
+        assert_eq!(preview_title("crmux", None, None, None), "crmux");
     }
 
     #[test]
     fn test_preview_title_with_empty_title() {
         let title = String::new();
-        assert_eq!(preview_title("crmux", "%1", Some(&title), None, None), "crmux - %1");
+        assert_eq!(preview_title("crmux", Some(&title), None, None), "crmux");
     }
 
     #[test]
@@ -1075,7 +1075,7 @@ mod tests {
         let title = "dev".to_string();
         let branch = "main".to_string();
         assert_eq!(
-            preview_title("crmux", "%1", Some(&title), Some(&branch), None),
+            preview_title("crmux", Some(&title), Some(&branch), None),
             "crmux (main) - dev"
         );
     }
@@ -1086,7 +1086,7 @@ mod tests {
         let branch = "feature".to_string();
         let worktree = "wt-1".to_string();
         assert_eq!(
-            preview_title("crmux", "%1", Some(&title), Some(&branch), Some(&worktree)),
+            preview_title("crmux", Some(&title), Some(&branch), Some(&worktree)),
             "crmux (feature/wt-1) - dev"
         );
     }
@@ -1095,8 +1095,8 @@ mod tests {
     fn test_preview_title_with_worktree_only() {
         let worktree = "wt-1".to_string();
         assert_eq!(
-            preview_title("crmux", "%1", None, None, Some(&worktree)),
-            "crmux (wt-1) - %1"
+            preview_title("crmux", None, None, Some(&worktree)),
+            "crmux (wt-1)"
         );
     }
 
