@@ -101,6 +101,8 @@ fn handle_normal_esc(state: &mut AppState) {
     }
 }
 
+// Flat key→action match is more readable than splitting into sub-functions.
+#[allow(clippy::too_many_lines)]
 fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppState) -> Action {
     // Clear esc_source_mode on any key except Esc
     if code != KeyCode::Esc {
