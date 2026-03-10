@@ -159,9 +159,8 @@ fn collect_all_plans_for_project_with_home(
     let base = std::path::PathBuf::from(format!("{home}/.claude/projects/{project_dir}"));
     let plans_dir = std::path::PathBuf::from(format!("{home}/.claude/plans"));
 
-    let entries = match std::fs::read_dir(&base) {
-        Ok(entries) => entries,
-        Err(_) => return Vec::new(),
+    let Ok(entries) = std::fs::read_dir(&base) else {
+        return Vec::new();
     };
 
     let mut plans = Vec::new();
@@ -175,21 +174,18 @@ fn collect_all_plans_for_project_with_home(
             Some(s) => s.to_string(),
             None => continue,
         };
-        let file = match std::fs::File::open(&path) {
-            Ok(f) => f,
-            Err(_) => continue,
+        let Ok(file) = std::fs::File::open(&path) else {
+            continue;
         };
         let reader = std::io::BufReader::new(file);
-        let slug = match extract_slug_from_jsonl(reader) {
-            Some(s) => s,
-            None => continue,
+        let Some(slug) = extract_slug_from_jsonl(reader) else {
+            continue;
         };
         if !seen_slugs.insert(slug.clone()) {
             continue;
         }
-        let title = match read_plan_title(&plans_dir, &slug) {
-            Some(t) => t,
-            None => continue,
+        let Some(title) = read_plan_title(&plans_dir, &slug) else {
+            continue;
         };
         let plan_path = plans_dir.join(format!("{slug}.md"));
         plans.push(PlanInfo {
