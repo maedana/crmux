@@ -96,13 +96,25 @@ fn sgr_updates_reverse(params: &str, mut in_reverse: bool) -> bool {
     in_reverse
 }
 
-/// Detect cursor position from reverse-video cell in ANSI content.
+/// Maximum number of lines from the bottom to scan for cursor detection.
+const CURSOR_SCAN_LINES: usize = 10;
+
+/// Detect cursor position from ANSI content.
 ///
-/// Claude Code renders its cursor as a reverse-video space (`\x1b[7m \x1b[0m`).
-/// Returns `(row, col)` where col accounts for wide characters.
-fn detect_cursor_position(content: &str) -> Option<(u16, u16)> {
+/// Scans the bottom `max_scan_lines` lines. First tries reverse-video detection
+/// (Claude Code renders cursor as `\x1b[7m \x1b[0m`), then falls back to
+/// finding a `❯ ` prompt pattern and returning the text end position.
+fn detect_cursor_position(content: &str, max_scan_lines: usize) -> Option<(u16, u16)> {
     let lines: Vec<&str> = content.split('\n').collect();
-    for (row, line) in lines.iter().enumerate().rev() {
+    let start = lines.len().saturating_sub(max_scan_lines);
+    detect_cursor_by_reverse_video(&lines, start)
+        .or_else(|| detect_cursor_by_prompt(&lines, start))
+}
+
+/// Detect cursor position by finding a reverse-video cell (bottom-up scan).
+fn detect_cursor_by_reverse_video(lines: &[&str], start: usize) -> Option<(u16, u16)> {
+    for (i, line) in lines[start..].iter().enumerate().rev() {
+        let row = start + i;
         let mut col: u16 = 0;
         let mut chars = line.chars().peekable();
         let mut in_reverse = false;
@@ -164,6 +176,75 @@ fn detect_cursor_position(content: &str) -> Option<(u16, u16)> {
         }
     }
     None
+}
+
+/// Detect cursor position by finding a `❯ ` prompt pattern (bottom-up scan).
+fn detect_cursor_by_prompt(lines: &[&str], start: usize) -> Option<(u16, u16)> {
+    for (i, line) in lines[start..].iter().enumerate().rev() {
+        let row = start + i;
+        let stripped = strip_ansi_for_prompt(line);
+        if let Some(pos) = stripped.find("❯ ") {
+            let after_prompt = &stripped[pos + "❯ ".len()..];
+            let prompt_col: u16 = stripped[..pos]
+                .chars()
+                .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16)
+                .sum();
+            let text_width: u16 = after_prompt
+                .chars()
+                .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16)
+                .sum();
+            #[allow(clippy::cast_possible_truncation)]
+            return Some((row as u16, prompt_col + 2 + text_width));
+        }
+    }
+    None
+}
+
+/// Strip ANSI escape sequences for prompt pattern detection.
+fn strip_ansi_for_prompt(s: &str) -> String {
+    let mut result = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                // Skip CSI parameters and final byte
+                while let Some(&c) = chars.peek() {
+                    if c.is_ascii_digit() || c == ';' {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                // Skip intermediate bytes
+                while let Some(&c) = chars.peek() {
+                    if (0x20..=0x2F).contains(&(c as u32)) {
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                // Skip final byte
+                if chars.peek().is_some() {
+                    chars.next();
+                }
+            } else if chars.peek() == Some(&']') {
+                chars.next();
+                while let Some(c) = chars.next() {
+                    if c == '\x07' {
+                        break;
+                    }
+                    if c == '\x1b' && chars.peek() == Some(&'\\') {
+                        chars.next();
+                        break;
+                    }
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 /// Capture a tmux pane with scrollback history (ANSI escapes preserved).
@@ -376,7 +457,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     } else {
                         capture_pane_content(&session.pane_id, None)
                     };
-                    let cursor_pos = detect_cursor_position(&content);
+                    let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
                     state.preview_contents = vec![PreviewEntry {
                         name: session.project_name.clone(),
                         pane_id: session.pane_id.clone(),
@@ -405,7 +486,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         } else {
                             capture_pane_content(&s.pane_id, None)
                         };
-                        let cursor_pos = detect_cursor_position(&content);
+                        let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
                         PreviewEntry {
                             name: s.project_name.clone(),
                             pane_id: s.pane_id.clone(),
@@ -544,33 +625,33 @@ mod tests {
     fn test_detect_cursor_basic() {
         // reverse-video space at col 2 on row 0
         let input = "ab\x1b[7m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
     }
 
     #[test]
     fn test_detect_cursor_multiline() {
         let input = "line1\n\x1b[39m❯  \x1b[7m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((1, 3)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((1, 3)));
     }
 
     #[test]
     fn test_detect_cursor_none() {
         let input = "no cursor here\njust text";
-        assert_eq!(detect_cursor_position(input), None);
+        assert_eq!(detect_cursor_position(input, usize::MAX), None);
     }
 
     #[test]
     fn test_detect_cursor_with_wide_chars() {
         // "日本" takes 4 columns, then reverse space at col 4
         let input = "日本\x1b[7m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((0, 4)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 4)));
     }
 
     #[test]
     fn test_detect_cursor_with_ansi_before() {
         // color codes don't add to column count
         let input = "\x1b[31mab\x1b[0m\x1b[7m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
     }
 
     #[test]
@@ -578,49 +659,102 @@ mod tests {
         // Two reverse-video cells: row 0 col 2 and row 2 col 3
         // Should return the last one (row 2, col 3)
         let input = "ab\x1b[7m \x1b[0mmore\nplain line\n❯  \x1b[7m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((2, 3)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((2, 3)));
     }
 
     #[test]
     fn test_detect_cursor_compound_sgr_bold_reverse() {
         // \x1b[1;7m = bold + reverse
         let input = "ab\x1b[1;7m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
     }
 
     #[test]
     fn test_detect_cursor_compound_sgr_reverse_with_color() {
         // \x1b[7;38;5;245m = reverse + 256-color fg
         let input = "ab\x1b[7;38;5;245m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
     }
 
     #[test]
     fn test_detect_cursor_compound_sgr_truecolor() {
         // \x1b[7;38;2;100;200;50m = reverse + truecolor fg
         let input = "ab\x1b[7;38;2;100;200;50m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
     }
 
     #[test]
     fn test_detect_cursor_compound_reset() {
         // \x1b[0;39m = reset + default fg color → reverse OFF
         let input = "ab\x1b[7m \x1b[0;39m";
-        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
     }
 
     #[test]
     fn test_detect_cursor_reset_then_reverse() {
         // \x1b[0;7m = reset then reverse → reverse ON
         let input = "ab\x1b[0;7m \x1b[0m";
-        assert_eq!(detect_cursor_position(input), Some((0, 2)));
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
     }
 
     #[test]
     fn test_detect_cursor_reverse_then_reset() {
         // \x1b[7;0m = reverse then reset → reverse OFF, so no cursor
         let input = "\x1b[7;0mab";
-        assert_eq!(detect_cursor_position(input), None);
+        assert_eq!(detect_cursor_position(input, usize::MAX), None);
+    }
+
+    // --- max_scan_lines tests ---
+
+    #[test]
+    fn test_detect_cursor_scan_limit_within_range() {
+        // 5 lines, reverse-video on last line (row 4), scan limit 3 → within range
+        let input = "line0\nline1\nline2\nline3\nab\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input, 3), Some((4, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_scan_limit_outside_range() {
+        // 5 lines, reverse-video on row 0 only, scan limit 3 → outside range, not found
+        let input = "ab\x1b[7m \x1b[0m\nline1\nline2\nline3\nline4";
+        assert_eq!(detect_cursor_position(input, 3), None);
+    }
+
+    #[test]
+    fn test_detect_cursor_scan_limit_none_scans_all() {
+        // reverse-video on row 0, no limit → found
+        let input = "ab\x1b[7m \x1b[0m\nline1\nline2\nline3\nline4";
+        assert_eq!(detect_cursor_position(input, usize::MAX), Some((0, 2)));
+    }
+
+    // --- prompt pattern fallback tests ---
+
+    #[test]
+    fn test_detect_cursor_prompt_fallback_with_text() {
+        // No reverse-video, but has prompt pattern with text
+        let input = "some output\n\x1b[39m❯ hello";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 7)));
+    }
+
+    #[test]
+    fn test_detect_cursor_prompt_fallback_empty() {
+        // No reverse-video, empty prompt → cursor at col 2 (after "❯ ")
+        let input = "some output\n❯ ";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_prompt_fallback_no_prompt() {
+        // No reverse-video, no prompt pattern → None
+        let input = "some output\njust text";
+        assert_eq!(detect_cursor_position(input, 10), None);
+    }
+
+    #[test]
+    fn test_detect_cursor_reverse_video_preferred_over_prompt() {
+        // Both reverse-video and prompt pattern present → reverse-video wins
+        let input = "❯ hello\nab\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 2)));
     }
 
     #[test]
