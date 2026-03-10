@@ -23,7 +23,7 @@ fn resolve_git_branch(cwd: &str) -> Option<String> {
     }
 }
 
-/// Parse `git diff --numstat` output and return (file_count, insertions, deletions).
+/// Parse `git diff --numstat` output and return (`file_count`, insertions, deletions).
 fn parse_numstat(output: &[u8]) -> (usize, usize, usize) {
     let text = String::from_utf8_lossy(output);
     let mut files = 0;
@@ -87,7 +87,7 @@ fn jsonl_path(cwd: &str, session_id: &str) -> Option<String> {
 
 /// Calculate the number of Shift+Tab presses needed to switch from `current` to `target_mode`.
 /// Mode cycle: Ask(0) → Auto Edit(1) → Plan(2) → Ask(0)...
-/// Returns 0 if target_mode is unknown or already matches current.
+/// Returns 0 if `target_mode` is unknown or already matches current.
 pub fn permission_mode_switch_count(current: &PermissionMode, target_mode: &str) -> usize {
     let current_idx = match current {
         PermissionMode::AskBeforeEdits => 0,
@@ -264,7 +264,7 @@ pub struct PreviewEntry {
     pub content: String,
     /// Cursor position (row, col) detected from reverse-video cell in captured content.
     pub cursor_pos: Option<(u16, u16)>,
-    /// Git diff summary for display in title_bottom.
+    /// Git diff summary for display in `title_bottom`.
     pub git_diff: Option<GitDiffInfo>,
 }
 
@@ -539,7 +539,7 @@ impl AppState {
         self.selected_session().map(|s| s.pane_id.as_str())
     }
 
-    /// Cycle the layout mode: Single → Grid → EvenHorizontal → EvenVertical → Single.
+    /// Cycle the layout mode: Single → Grid → `EvenHorizontal` → `EvenVertical` → Single.
     pub fn cycle_layout_mode(&mut self) {
         self.layout_mode = match self.layout_mode {
             LayoutMode::Single => LayoutMode::Grid,
@@ -645,7 +645,7 @@ impl AppState {
             .min_by_key(|s| s.state_changed_at)
     }
 
-    /// Find a session by pane_id.
+    /// Find a session by `pane_id`.
     pub fn find_session_by_pane_id(&self, pane_id: &str) -> Option<&ManagedSession> {
         self.sessions.iter().find(|s| s.pane_id == pane_id)
     }

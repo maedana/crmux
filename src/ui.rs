@@ -228,17 +228,15 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode) -> Vec<Span<'sta
     )];
     match layout_mode {
         LayoutMode::Single => {}
-        LayoutMode::Grid => {
+        mode => {
+            let label = match mode {
+                LayoutMode::Grid => "[Grid]",
+                LayoutMode::EvenHorizontal => "[EvenH]",
+                LayoutMode::EvenVertical => "[EvenV]",
+                LayoutMode::Single => unreachable!(),
+            };
             spans.push(Span::raw(" "));
-            spans.push(Span::styled("[Grid]", Style::default().fg(Color::Yellow)));
-        }
-        LayoutMode::EvenHorizontal => {
-            spans.push(Span::raw(" "));
-            spans.push(Span::styled("[EvenH]", Style::default().fg(Color::Yellow)));
-        }
-        LayoutMode::EvenVertical => {
-            spans.push(Span::raw(" "));
-            spans.push(Span::styled("[EvenV]", Style::default().fg(Color::Yellow)));
+            spans.push(Span::styled(label, Style::default().fg(Color::Yellow)));
         }
     }
     match input_mode {
@@ -306,7 +304,7 @@ fn compute_cursor_pos(inner: Rect, cursor_pos: Option<(u16, u16)>, scroll_y: u16
 /// Returns the cursor position (x, y) for the selected preview pane's bottom-left (IME anchor).
 // Single/multi-pane rendering is already split into branches; further extraction hurts readability.
 #[allow(clippy::too_many_lines)]
-/// Convert `GitDiffInfo` to a colored `Line` for title_bottom display.
+/// Convert `GitDiffInfo` to a colored `Line` for `title_bottom` display.
 /// GitHub-style colors: green for additions/staged, yellow for modified, red for deletions.
 fn git_diff_line(info: &crate::state::GitDiffInfo) -> Line<'static> {
     let green = Style::default().fg(Color::Rgb(63, 185, 80));
@@ -407,27 +405,21 @@ fn draw_preview_panes(
 #[allow(clippy::cast_possible_truncation)]
 fn compute_cell_areas(n: usize, area: Rect, layout_mode: LayoutMode) -> Vec<Rect> {
     match layout_mode {
-        LayoutMode::EvenHorizontal => {
+        LayoutMode::EvenHorizontal | LayoutMode::EvenVertical => {
+            let direction = match layout_mode {
+                LayoutMode::EvenHorizontal => Direction::Horizontal,
+                _ => Direction::Vertical,
+            };
             let constraints: Vec<Constraint> = (0..n)
                 .map(|_| Constraint::Ratio(1, n as u32))
                 .collect();
             Layout::default()
-                .direction(Direction::Horizontal)
+                .direction(direction)
                 .constraints(constraints)
                 .split(area)
                 .to_vec()
         }
-        LayoutMode::EvenVertical => {
-            let constraints: Vec<Constraint> = (0..n)
-                .map(|_| Constraint::Ratio(1, n as u32))
-                .collect();
-            Layout::default()
-                .direction(Direction::Vertical)
-                .constraints(constraints)
-                .split(area)
-                .to_vec()
-        }
-        _ => {
+        LayoutMode::Single | LayoutMode::Grid => {
             let (cols, rows) = compute_grid(n, area.width, MIN_PANE_WIDTH);
             let row_items = grid_row_items(n, cols);
             let row_constraints: Vec<Constraint> = row_items
