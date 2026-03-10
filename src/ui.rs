@@ -484,11 +484,12 @@ fn render_preview_cell(
     let preview = Paragraph::new(preview_text)
         .block(block)
         .scroll((scroll_y, 0));
-    let mut cursor = None;
-    if is_focused {
+    let cursor = if is_focused {
         let inner = Block::default().borders(Borders::ALL).inner(cell_area);
-        cursor = compute_cursor_pos(inner, entry.cursor_pos, scroll_y);
-    }
+        compute_cursor_pos(inner, entry.cursor_pos, scroll_y)
+    } else {
+        None
+    };
     f.render_widget(preview, cell_area);
     cursor
 }
