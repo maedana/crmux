@@ -75,9 +75,8 @@ fn sgr_updates_reverse(params: &str, mut in_reverse: bool) -> bool {
     while i < parts.len() {
         let code: u32 = parts[i].parse().unwrap_or(0);
         match code {
-            0 => in_reverse = false,
             7 => in_reverse = true,
-            27 => in_reverse = false,
+            0 | 27 => in_reverse = false,
             38 | 48 => {
                 // Extended color: skip sub-parameters
                 if i + 1 < parts.len() {
