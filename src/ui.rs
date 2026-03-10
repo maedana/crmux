@@ -51,13 +51,13 @@ fn grid_row_items(n: usize, cols: usize) -> Vec<usize> {
 }
 
 const SELECTED_ICON: &str = "> ";
-const TITLE_COLOR: Color = Color::Rgb(180, 180, 180);
-const TAB_INACTIVE_COLOR: Color = TITLE_COLOR;
-const TAB_ARROW_COLOR: Color = TITLE_COLOR;
-const EMPTY_MESSAGE_COLOR: Color = TITLE_COLOR;
-const BRANCH_COLOR: Color = TITLE_COLOR;
-const MODEL_COLOR: Color = TITLE_COLOR;
-const PLACEHOLDER_COLOR: Color = TITLE_COLOR;
+const TITLE_COLOR: Color = Color::Rgb(200, 200, 200);
+const TAB_INACTIVE_COLOR: Color = Color::Rgb(140, 140, 140);
+const TAB_ARROW_COLOR: Color = Color::Rgb(140, 140, 140);
+const EMPTY_MESSAGE_COLOR: Color = Color::Rgb(180, 180, 180);
+const BRANCH_COLOR: Color = Color::Rgb(180, 180, 180);
+const MODEL_COLOR: Color = Color::Rgb(140, 140, 140);
+const PLACEHOLDER_COLOR: Color = Color::Rgb(100, 100, 100);
 
 /// Determine if a session should pulse based on its state and elapsed time.
 /// `has_worked` indicates whether the session has ever been in the Working state;
@@ -732,19 +732,18 @@ fn draw_sessions_list(
 
         let mark_span = Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
 
-        let mut status_spans = Vec::new();
-        if let Some(ref model) = session.model {
+        let model_line = if let Some(ref model) = session.model {
             let compact_model = model.replace(' ', "");
             let model_text = session.context_percent.map_or_else(
                 || compact_model.clone(),
                 |pct| format!("{compact_model}({pct}%)"),
             );
-            status_spans.push(Span::styled(
-                model_text,
-                Style::default().fg(MODEL_COLOR),
-            ));
-            status_spans.push(Span::raw(" "));
-        }
+            Line::from(Span::styled(model_text, Style::default().fg(MODEL_COLOR)))
+        } else {
+            Line::from("")
+        };
+
+        let mut status_spans = Vec::new();
         let mode_icon = permission_mode_icon(&session.permission_mode);
         if !mode_icon.is_empty() {
             status_spans.push(Span::styled(
@@ -776,7 +775,7 @@ fn draw_sessions_list(
         } else {
             Line::from(vec![
                 mark_span,
-                Span::styled("Press e to edit title", Style::default().fg(TITLE_COLOR)),
+                Span::styled("Press e to edit title", Style::default().fg(PLACEHOLDER_COLOR)),
             ])
         };
         let paragraph = Paragraph::new(vec![combined_line]);
@@ -789,6 +788,7 @@ fn draw_sessions_list(
 
         let block = Block::default()
             .title(project_title)
+            .title_bottom(model_line.left_aligned())
             .title_bottom(status_line.right_aligned())
             .borders(Borders::ALL)
             .border_style(card_border_style);
