@@ -254,6 +254,8 @@ pub struct PreviewEntry {
     pub name: String,
     /// Tmux pane ID.
     pub pane_id: String,
+    /// 0-based index in the filtered session list (used for number-key display).
+    pub index: usize,
     /// Optional session title label.
     pub title: Option<String>,
     /// Git branch name.
@@ -1060,6 +1062,7 @@ mod tests {
         let entry = PreviewEntry {
             name: "crmux".to_string(),
             pane_id: "%1".to_string(),
+            index: 0,
             title: Some("development".to_string()),
             git_branch: None,
             worktree_name: None,
@@ -1076,6 +1079,7 @@ mod tests {
         let entry = PreviewEntry {
             name: "crmux".to_string(),
             pane_id: "%1".to_string(),
+            index: 0,
             title: None,
             git_branch: None,
             worktree_name: None,

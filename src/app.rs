@@ -465,6 +465,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         state.preview_contents = vec![PreviewEntry {
                             name: session.project_name.clone(),
                             pane_id: session.pane_id.clone(),
+                            index: state.selected_index,
                             title: session.display_title().map(String::from),
                             git_branch: session.git_branch.clone(),
                             worktree_name: session.worktree_name.clone(),
@@ -481,7 +482,8 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     let selected_pane = state.selected_pane_id().map(String::from);
                     let entries: Vec<PreviewEntry> = filtered
                         .iter()
-                        .map(|s| {
+                        .enumerate()
+                        .map(|(i, s)| {
                             let is_focused =
                                 selected_pane.as_deref() == Some(s.pane_id.as_str());
                             let content = if is_focused && state.preview_scroll > 0 {
@@ -495,6 +497,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                             PreviewEntry {
                                 name: s.project_name.clone(),
                                 pane_id: s.pane_id.clone(),
+                                index: i,
                                 title: s.display_title().map(String::from),
                                 git_branch: s.git_branch.clone(),
                                 worktree_name: s.worktree_name.clone(),
