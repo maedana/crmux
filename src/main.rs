@@ -7,6 +7,7 @@ mod event_handler;
 mod rpc;
 mod state;
 mod ui;
+mod update;
 
 #[derive(Parser)]
 #[command(version, about)]
@@ -51,6 +52,16 @@ Examples:
         /// Event type
         event: String,
     },
+
+    /// Update crmux to the latest version
+    Update {
+        /// Skip version check and force re-download
+        #[arg(long)]
+        force: bool,
+        /// Check for updates without installing
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 fn main() {
@@ -75,6 +86,9 @@ fn main() {
                 std::process::exit(1);
             }
         }
+        Some(Commands::Update { force, check }) => {
+            handle_update(force, check);
+        }
         None => {
             if env::var("TMUX").is_err() {
                 eprintln!("crmux must be run inside tmux");
@@ -83,6 +97,49 @@ fn main() {
 
             if let Err(e) = app::run() {
                 eprintln!("crmux error: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn handle_update(force: bool, check: bool) {
+    let current = env!("CARGO_PKG_VERSION");
+    println!("crmux v{current} - checking for updates...");
+
+    if check {
+        match update::fetch_latest_version() {
+            Ok(latest) => match update::check_update_needed(current, &latest) {
+                update::UpdateStatus::AlreadyLatest(v) => {
+                    println!("Already up to date (latest: {v})");
+                }
+                update::UpdateStatus::UpdateAvailable(v) => {
+                    println!("Update available: {v}");
+                    println!("Run `crmux update` to install");
+                }
+            },
+            Err(e) => {
+                eprintln!("Failed to check for updates: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    if force {
+        // Force: set current_version to 0.0.0 so self_update always downloads
+        match update::perform_update_force() {
+            Ok(status) => println!("{status}"),
+            Err(e) => {
+                eprintln!("Update failed: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        match update::perform_update() {
+            Ok(status) => println!("{status}"),
+            Err(e) => {
+                eprintln!("Update failed: {e}");
                 std::process::exit(1);
             }
         }

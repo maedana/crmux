@@ -373,12 +373,26 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut claudeye_child: Option<std::process::Child> = None;
 
+    // Background version check
+    let update_result: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+    {
+        let update_result = Arc::clone(&update_result);
+        std::thread::spawn(move || {
+            if let Ok(version) = crate::update::fetch_latest_version()
+                && let Ok(mut result) = update_result.lock()
+            {
+                *result = Some(version);
+            }
+        });
+    }
+
     let result = run_event_loop(
         &mut terminal,
         &monitor_state,
         &app_state,
         rpc_server.as_ref(),
         &mut claudeye_child,
+        &update_result,
     );
 
     // Shut down claudeye child process
@@ -412,6 +426,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
     app_state: &Arc<Mutex<AppState>>,
     rpc_server: Option<&crate::rpc::RpcServer>,
     claudeye_child: &mut Option<std::process::Child>,
+    update_result: &Arc<Mutex<Option<String>>>,
 ) -> io::Result<()> {
     let mut last_git_refresh = std::time::Instant::now()
         .checked_sub(Duration::from_secs(10))
@@ -433,6 +448,19 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 state.refresh_git_info();
                 state.refresh_auto_titles();
                 last_git_refresh = std::time::Instant::now();
+            }
+
+            // Check for background update result
+            if state.update_available.is_none()
+                && let Ok(mut result) = update_result.try_lock()
+                && let Some(version) = result.take()
+            {
+                let current = env!("CARGO_PKG_VERSION");
+                if let crate::update::UpdateStatus::UpdateAvailable(v) =
+                    crate::update::check_update_needed(current, &version)
+                {
+                    state.update_available = Some(v);
+                }
             }
 
             // Process RPC messages
@@ -537,6 +565,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
             }
 
             // Draw TUI
+            let update_available = state.update_available.clone();
             let frame = terminal.draw(|f| {
                 ui::draw(
                     f,
@@ -550,6 +579,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     state.preview_scroll,
                     &state.tab_state,
                     state.layout_mode,
+                    update_available.as_deref(),
                 );
             })?;
 

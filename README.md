@@ -48,6 +48,16 @@ cd crmux
 cargo build --release
 ```
 
+### Update
+
+```sh
+crmux update          # Update to the latest version
+crmux update --check  # Check for updates without installing
+crmux update --force  # Force re-download even if already up to date
+```
+
+> **Note:** `crmux update` downloads the latest binary from GitHub Releases. If you installed via `cargo install`, you may prefer `cargo install crmux --locked` to keep version tracking consistent.
+
 ## Usage
 
 Run inside a tmux session:

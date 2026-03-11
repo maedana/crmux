@@ -349,6 +349,8 @@ pub struct AppState {
     pub plans: Vec<crate::auto_title::PlanInfo>,
     /// Project dirs already scanned for historical plans.
     pub scanned_project_dirs: std::collections::HashSet<String>,
+    /// Latest version available for update (None = unchecked or already latest).
+    pub update_available: Option<String>,
 }
 
 impl AppState {
@@ -372,6 +374,7 @@ impl AppState {
             tab_state: TabState::new(),
             plans: Vec::new(),
             scanned_project_dirs: std::collections::HashSet::new(),
+            update_available: None,
         }
     }
 
