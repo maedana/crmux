@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+- `crmux update` subcommand to self-update from GitHub Releases (`--check`, `--force` flags)
+- Background version check on TUI startup with yellow footer notification
+
+### Changed
+- Default layout mode changed to MainVertical
+- Layout cycle reordered: MainV → Single → Grid → EvenH → EvenV → MainH
+
 ## 0.13.0
 
 ### Added

@@ -240,14 +240,8 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
     }
     match input_mode {
         InputMode::Normal => {
-            let v_label = match layout_mode {
-                LayoutMode::Single => "v:Grid",
-                LayoutMode::Grid => "v:EvenH",
-                LayoutMode::EvenHorizontal => "v:EvenV",
-                LayoutMode::EvenVertical => "v:MainV",
-                LayoutMode::MainVertical => "v:MainH",
-                LayoutMode::MainHorizontal => "v:Single",
-            };
+            let next_label = layout_mode.next().short_label();
+            let v_label = format!("v:{next_label}");
             spans.push(Span::raw(format!(" | hjkl:Nav 1-9:Select Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
         }
         InputMode::Input => {
@@ -650,7 +644,7 @@ Keybindings (Normal mode):
   1-9            Select session by number
   s              Switch to tmux pane
   Space          Mark session (for filtering and broadcast)
-  v              Cycle layout (Single/Grid/EvenH/EvenV/MainV/MainH)
+  v              Cycle layout (MainV/Single/Grid/EvenH/EvenV/MainH)  // Update when LayoutMode::next() changes
   i              Enter input mode (send keys to the selected session)
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
@@ -1316,21 +1310,21 @@ mod tests {
     fn test_footer_main_vertical_label_and_next() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::MainVertical, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("v:MainH"), "should contain v:MainH, got: {text}");
+        assert!(text.contains("v:Single"), "should contain v:Single, got: {text}");
     }
 
     #[test]
     fn test_footer_main_horizontal_label_and_next() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::MainHorizontal, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("v:Single"), "should contain v:Single, got: {text}");
+        assert!(text.contains("v:MainV"), "should contain v:MainV, got: {text}");
     }
 
     #[test]
-    fn test_footer_even_vertical_next_is_main_v() {
+    fn test_footer_even_vertical_next_is_main_h() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::EvenVertical, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("v:MainV"), "should contain v:MainV, got: {text}");
+        assert!(text.contains("v:MainH"), "should contain v:MainH, got: {text}");
     }
 
     #[test]

@@ -296,6 +296,32 @@ pub enum LayoutMode {
     MainHorizontal,
 }
 
+impl LayoutMode {
+    /// Return the next layout mode in the cycle.
+    pub const fn next(self) -> Self {
+        match self {
+            Self::MainVertical => Self::Single,
+            Self::Single => Self::Grid,
+            Self::Grid => Self::EvenHorizontal,
+            Self::EvenHorizontal => Self::EvenVertical,
+            Self::EvenVertical => Self::MainHorizontal,
+            Self::MainHorizontal => Self::MainVertical,
+        }
+    }
+
+    /// Short label for display (e.g. footer).
+    pub const fn short_label(self) -> &'static str {
+        match self {
+            Self::Single => "Single",
+            Self::Grid => "Grid",
+            Self::EvenHorizontal => "EvenH",
+            Self::EvenVertical => "EvenV",
+            Self::MainVertical => "MainV",
+            Self::MainHorizontal => "MainH",
+        }
+    }
+}
+
 /// Input mode for the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InputMode {
@@ -556,14 +582,7 @@ impl AppState {
 
     /// Cycle the layout mode: `MainVertical` → Single → Grid → `EvenHorizontal` → `EvenVertical` → `MainHorizontal` → `MainVertical`.
     pub const fn cycle_layout_mode(&mut self) {
-        self.layout_mode = match self.layout_mode {
-            LayoutMode::MainVertical => LayoutMode::Single,
-            LayoutMode::Single => LayoutMode::Grid,
-            LayoutMode::Grid => LayoutMode::EvenHorizontal,
-            LayoutMode::EvenHorizontal => LayoutMode::EvenVertical,
-            LayoutMode::EvenVertical => LayoutMode::MainHorizontal,
-            LayoutMode::MainHorizontal => LayoutMode::MainVertical,
-        };
+        self.layout_mode = self.layout_mode.next();
     }
 
     /// Toggle the mark on the currently selected session (PID-based).
