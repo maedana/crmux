@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.14.0
+
 ### Added
 - `crmux update` subcommand to self-update from GitHub Releases (`--check`, `--force` flags)
 - Background version check on TUI startup with yellow footer notification
