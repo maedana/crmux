@@ -202,7 +202,7 @@ fn detect_cursor_by_prompt(lines: &[&str], start: usize) -> Option<(u16, u16)> {
 }
 
 /// Strip ANSI escape sequences for prompt pattern detection.
-fn strip_ansi_for_prompt(s: &str) -> String {
+pub fn strip_ansi_for_prompt(s: &str) -> String {
     let mut result = String::new();
     let mut chars = s.chars().peekable();
     while let Some(ch) = chars.next() {

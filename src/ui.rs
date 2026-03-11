@@ -384,7 +384,20 @@ fn draw_preview_panes(
     }
 
     // Multiple previews: layout depends on mode
-    let cell_areas = compute_cell_areas(preview_contents.len(), area, layout_mode);
+    let main_content_width = if layout_mode == LayoutMode::MainVertical && !preview_contents.is_empty() {
+        #[allow(clippy::cast_possible_truncation)]
+        let max_w = preview_contents[0].content.lines()
+            .map(|line| {
+                let stripped = crate::app::strip_ansi_for_prompt(line);
+                unicode_width::UnicodeWidthStr::width(stripped.as_str()) as u16
+            })
+            .max()
+            .unwrap_or(0);
+        Some(max_w)
+    } else {
+        None
+    };
+    let cell_areas = compute_cell_areas(preview_contents.len(), area, layout_mode, main_content_width);
 
     let mut cursor_pos = None;
     for (i, entry) in preview_contents.iter().enumerate() {
@@ -399,7 +412,7 @@ fn draw_preview_panes(
 
 /// Compute cell areas for multiple preview panes based on layout mode.
 #[allow(clippy::cast_possible_truncation)]
-fn compute_cell_areas(n: usize, area: Rect, layout_mode: LayoutMode) -> Vec<Rect> {
+fn compute_cell_areas(n: usize, area: Rect, layout_mode: LayoutMode, main_content_width: Option<u16>) -> Vec<Rect> {
     match layout_mode {
         LayoutMode::EvenHorizontal | LayoutMode::EvenVertical => {
             let direction = match layout_mode {
@@ -420,7 +433,18 @@ fn compute_cell_areas(n: usize, area: Rect, layout_mode: LayoutMode) -> Vec<Rect
                 return vec![area];
             }
             let (main_direction, sub_direction, main_pct, sub_pct) = match layout_mode {
-                LayoutMode::MainVertical => (Direction::Horizontal, Direction::Vertical, 60, 40),
+                LayoutMode::MainVertical => {
+                    let pct = match main_content_width {
+                        Some(w) if area.width > 0 => {
+                            let needed = (u32::from(w) + 2) * 100 / u32::from(area.width);
+                            #[allow(clippy::cast_possible_truncation)]
+                            let needed_u16 = needed as u16;
+                            needed_u16.clamp(60, 80)
+                        }
+                        _ => 60,
+                    };
+                    (Direction::Horizontal, Direction::Vertical, pct, 100 - pct)
+                }
                 _ => (Direction::Vertical, Direction::Horizontal, 60, 40),
             };
             let main_split = Layout::default()
@@ -1263,7 +1287,7 @@ mod tests {
     #[test]
     fn test_compute_cell_areas_main_vertical_3_panes() {
         let area = Rect::new(0, 0, 100, 40);
-        let areas = compute_cell_areas(3, area, LayoutMode::MainVertical);
+        let areas = compute_cell_areas(3, area, LayoutMode::MainVertical, None);
         assert_eq!(areas.len(), 3);
         // Main pane (left) should be ~60% width
         assert!(areas[0].width >= 58 && areas[0].width <= 62, "main width: {}", areas[0].width);
@@ -1279,7 +1303,7 @@ mod tests {
     #[test]
     fn test_compute_cell_areas_main_horizontal_3_panes() {
         let area = Rect::new(0, 0, 100, 40);
-        let areas = compute_cell_areas(3, area, LayoutMode::MainHorizontal);
+        let areas = compute_cell_areas(3, area, LayoutMode::MainHorizontal, None);
         assert_eq!(areas.len(), 3);
         // Main pane (top) should be ~60% height
         assert!(areas[0].height >= 23 && areas[0].height <= 25, "main height: {}", areas[0].height);
@@ -1293,7 +1317,7 @@ mod tests {
     #[test]
     fn test_compute_cell_areas_main_vertical_1_pane() {
         let area = Rect::new(0, 0, 100, 40);
-        let areas = compute_cell_areas(1, area, LayoutMode::MainVertical);
+        let areas = compute_cell_areas(1, area, LayoutMode::MainVertical, None);
         assert_eq!(areas.len(), 1);
         assert_eq!(areas[0], area);
     }
@@ -1301,9 +1325,36 @@ mod tests {
     #[test]
     fn test_compute_cell_areas_main_horizontal_1_pane() {
         let area = Rect::new(0, 0, 100, 40);
-        let areas = compute_cell_areas(1, area, LayoutMode::MainHorizontal);
+        let areas = compute_cell_areas(1, area, LayoutMode::MainHorizontal, None);
         assert_eq!(areas.len(), 1);
         assert_eq!(areas[0], area);
+    }
+
+    #[test]
+    fn test_compute_cell_areas_main_vertical_auto_width_mid() {
+        let area = Rect::new(0, 0, 100, 40);
+        // content width 75 → needed = (75+2)*100/100 = 77 → clamp(60,80) = 77
+        let areas = compute_cell_areas(3, area, LayoutMode::MainVertical, Some(75));
+        assert_eq!(areas.len(), 3);
+        assert!(areas[0].width >= 75 && areas[0].width <= 79, "main width: {}", areas[0].width);
+    }
+
+    #[test]
+    fn test_compute_cell_areas_main_vertical_auto_width_clamp_upper() {
+        let area = Rect::new(0, 0, 100, 40);
+        // content width 90 → needed = (90+2)*100/100 = 92 → clamp(60,80) = 80
+        let areas = compute_cell_areas(3, area, LayoutMode::MainVertical, Some(90));
+        assert_eq!(areas.len(), 3);
+        assert!(areas[0].width >= 78 && areas[0].width <= 82, "main width: {}", areas[0].width);
+    }
+
+    #[test]
+    fn test_compute_cell_areas_main_vertical_auto_width_clamp_lower() {
+        let area = Rect::new(0, 0, 100, 40);
+        // content width 40 → needed = (40+2)*100/100 = 42 → clamp(60,80) = 60
+        let areas = compute_cell_areas(3, area, LayoutMode::MainVertical, Some(40));
+        assert_eq!(areas.len(), 3);
+        assert!(areas[0].width >= 58 && areas[0].width <= 62, "main width: {}", areas[0].width);
     }
 
     #[test]
