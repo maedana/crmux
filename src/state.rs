@@ -368,7 +368,7 @@ impl AppState {
             pending_rpc: Vec::new(),
             esc_source_mode: None,
             claudeye_visible: false,
-            layout_mode: LayoutMode::Single,
+            layout_mode: LayoutMode::MainVertical,
             tab_state: TabState::new(),
             plans: Vec::new(),
             scanned_project_dirs: std::collections::HashSet::new(),
@@ -551,15 +551,15 @@ impl AppState {
         self.selected_session().map(|s| s.pane_id.as_str())
     }
 
-    /// Cycle the layout mode: Single → Grid → `EvenHorizontal` → `EvenVertical` → Single.
+    /// Cycle the layout mode: `MainVertical` → Single → Grid → `EvenHorizontal` → `EvenVertical` → `MainHorizontal` → `MainVertical`.
     pub const fn cycle_layout_mode(&mut self) {
         self.layout_mode = match self.layout_mode {
+            LayoutMode::MainVertical => LayoutMode::Single,
             LayoutMode::Single => LayoutMode::Grid,
             LayoutMode::Grid => LayoutMode::EvenHorizontal,
             LayoutMode::EvenHorizontal => LayoutMode::EvenVertical,
-            LayoutMode::EvenVertical => LayoutMode::MainVertical,
-            LayoutMode::MainVertical => LayoutMode::MainHorizontal,
-            LayoutMode::MainHorizontal => LayoutMode::Single,
+            LayoutMode::EvenVertical => LayoutMode::MainHorizontal,
+            LayoutMode::MainHorizontal => LayoutMode::MainVertical,
         };
     }
 
@@ -2915,14 +2915,16 @@ mod tests {
     // --- LayoutMode tests ---
 
     #[test]
-    fn test_layout_mode_default_single() {
+    fn test_layout_mode_default_main_vertical() {
         let state = AppState::new(None);
-        assert_eq!(state.layout_mode, LayoutMode::Single);
+        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
     }
 
     #[test]
     fn test_cycle_layout_mode() {
         let mut state = AppState::new(None);
+        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
+        state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::Single);
         state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::Grid);
@@ -2931,11 +2933,9 @@ mod tests {
         state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::EvenVertical);
         state.cycle_layout_mode();
-        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
-        state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::MainHorizontal);
         state.cycle_layout_mode();
-        assert_eq!(state.layout_mode, LayoutMode::Single);
+        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
     }
 
 }

@@ -1618,6 +1618,9 @@ mod tests {
     fn test_v_cycles_layout_mode() {
         use crate::state::LayoutMode;
         let mut state = make_state_with_session();
+        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
+        let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
+        assert_eq!(action, Action::Continue);
         assert_eq!(state.layout_mode, LayoutMode::Single);
         let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
         assert_eq!(action, Action::Continue);
@@ -1630,13 +1633,10 @@ mod tests {
         assert_eq!(state.layout_mode, LayoutMode::EvenVertical);
         let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
         assert_eq!(action, Action::Continue);
-        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
-        let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
-        assert_eq!(action, Action::Continue);
         assert_eq!(state.layout_mode, LayoutMode::MainHorizontal);
         let action = handle_key_event(&make_key_event(KeyCode::Char('v')), &mut state);
         assert_eq!(action, Action::Continue);
-        assert_eq!(state.layout_mode, LayoutMode::Single);
+        assert_eq!(state.layout_mode, LayoutMode::MainVertical);
     }
 
     // --- number keys select session ---
