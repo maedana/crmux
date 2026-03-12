@@ -543,6 +543,7 @@ mod tests {
             has_worked: false,
             worktree_name: None,
             git_diff: None,
+            tmux_session: String::new(),
         });
         state
     }
@@ -570,6 +571,7 @@ mod tests {
                 has_worked: false,
                 worktree_name: None,
                 git_diff: None,
+                tmux_session: String::new(),
             });
         }
         state
@@ -963,6 +965,7 @@ mod tests {
             has_worked: false,
             worktree_name: None,
             git_diff: None,
+            tmux_session: String::new(),
         });
         state.sessions.push(ManagedSession {
             pid: 200,
@@ -983,6 +986,7 @@ mod tests {
             has_worked: false,
             worktree_name: None,
             git_diff: None,
+            tmux_session: String::new(),
         });
         state.sessions.push(ManagedSession {
             pid: 300,
@@ -1003,6 +1007,7 @@ mod tests {
             has_worked: false,
             worktree_name: None,
             git_diff: None,
+            tmux_session: String::new(),
         });
         state
     }
@@ -1530,6 +1535,7 @@ mod tests {
                 has_worked: false,
             worktree_name: None,
             git_diff: None,
+            tmux_session: String::new(),
             });
         }
         state.tab_state.rebuild_tabs(&state.sessions);

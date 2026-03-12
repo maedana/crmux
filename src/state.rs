@@ -78,6 +78,15 @@ fn resolve_git_diff(cwd: &str) -> Option<GitDiffInfo> {
     Some(info)
 }
 
+/// Extract the tmux session name from a pane_id (e.g., "dev:%1" → "dev").
+/// Returns empty string if pane_id has no ':' separator.
+fn extract_tmux_session(pane_id: &str) -> String {
+    match pane_id.split_once(':') {
+        Some((session, _)) => session.to_string(),
+        None => String::new(),
+    }
+}
+
 /// Build the path to a session's JSONL file: `~/.claude/projects/<project_dir>/<session_id>.jsonl`
 fn jsonl_path(cwd: &str, session_id: &str) -> Option<String> {
     let home = std::env::var("HOME").ok()?;
@@ -151,6 +160,8 @@ pub struct ManagedSession {
     pub worktree_name: Option<String>,
     /// Git diff summary (staged/modified files and line changes).
     pub git_diff: Option<GitDiffInfo>,
+    /// Tmux session name this pane belongs to (extracted from pane_id).
+    pub tmux_session: String,
 }
 
 impl ManagedSession {
@@ -166,6 +177,7 @@ impl ManagedSession {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
     All,
+    Workspace(String),
     Marked,
     Project(String),
 }
@@ -195,6 +207,20 @@ impl TabState {
         projects.dedup();
 
         let mut new_tabs = vec![Tab::All];
+
+        // Add Workspace tabs when 2+ unique tmux sessions exist
+        let mut tmux_sessions: Vec<String> = sessions
+            .iter()
+            .map(|s| s.tmux_session.clone())
+            .collect();
+        tmux_sessions.sort();
+        tmux_sessions.dedup();
+        if tmux_sessions.len() >= 2 {
+            for ws in tmux_sessions {
+                new_tabs.push(Tab::Workspace(ws));
+            }
+        }
+
         if sessions.iter().any(|s| s.marked) {
             new_tabs.push(Tab::Marked);
         }
@@ -408,6 +434,11 @@ impl AppState {
     pub fn filtered_sessions(&self) -> Vec<&ManagedSession> {
         match self.tab_state.current_tab() {
             Tab::All => self.sessions.iter().collect(),
+            Tab::Workspace(name) => self
+                .sessions
+                .iter()
+                .filter(|s| s.tmux_session == *name)
+                .collect(),
             Tab::Marked => self.sessions.iter().filter(|s| s.marked).collect(),
             Tab::Project(name) => self
                 .sessions
@@ -448,6 +479,7 @@ impl AppState {
             {
                 // Update pane_id in case it changed after join-pane
                 existing.pane_id.clone_from(&session.pane.id);
+                existing.tmux_session = extract_tmux_session(&session.pane.id);
                 existing.permission_mode = session.permission_mode.clone();
                 if existing.state != session.state {
                     state_changed.push(existing.pid);
@@ -479,6 +511,7 @@ impl AppState {
                     has_worked: matches!(session.state, ClaudeState::Working),
                     worktree_name: session.pane.worktree_name.clone(),
                     git_diff: resolve_git_diff(&session.pane.cwd),
+                    tmux_session: extract_tmux_session(&session.pane.id),
                 });
             }
         }
@@ -2958,6 +2991,134 @@ mod tests {
         assert_eq!(state.layout_mode, LayoutMode::MainHorizontal);
         state.cycle_layout_mode();
         assert_eq!(state.layout_mode, LayoutMode::MainVertical);
+    }
+
+    // --- Workspace tab tests ---
+
+    #[test]
+    fn test_tmux_session_extracted_from_pane_id() {
+        let mut app = AppState::new(None);
+        // pane_id format: "session_name:window.pane" e.g. "dev:%1"
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].tmux_session, "dev");
+    }
+
+    #[test]
+    fn test_tmux_session_updated_on_pane_id_change() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        assert_eq!(app.sessions[0].tmux_session, "dev");
+
+        // Simulate pane move to different session
+        let monitor2 = make_monitor(vec![
+            make_session(100, "staging:%3", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor2);
+        assert_eq!(app.sessions[0].tmux_session, "staging");
+    }
+
+    #[test]
+    fn test_workspace_tabs_appear_with_two_sessions() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert!(app.tab_state.tabs.iter().any(|t| matches!(t, Tab::Workspace(_))));
+        // Should have Workspace(dev) and Workspace(staging)
+        let ws_tabs: Vec<_> = app.tab_state.tabs.iter()
+            .filter_map(|t| if let Tab::Workspace(name) = t { Some(name.as_str()) } else { None })
+            .collect();
+        assert!(ws_tabs.contains(&"dev"));
+        assert!(ws_tabs.contains(&"staging"));
+    }
+
+    #[test]
+    fn test_workspace_tabs_not_shown_with_one_session() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "dev:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Both in same tmux session "dev" → only 1 unique session → no Workspace tabs
+        assert!(!app.tab_state.tabs.iter().any(|t| matches!(t, Tab::Workspace(_))));
+    }
+
+    #[test]
+    fn test_workspace_filter_returns_matching_sessions() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+            make_session(300, "dev:%3", "project-c", ClaudeState::Working),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Select the Workspace(dev) tab
+        let ws_pos = app.tab_state.tabs.iter().position(|t| *t == Tab::Workspace("dev".to_string())).unwrap();
+        app.tab_state.selected_tab = ws_pos;
+
+        let filtered = app.filtered_sessions();
+        assert_eq!(filtered.len(), 2);
+        assert!(filtered.iter().all(|s| s.tmux_session == "dev"));
+    }
+
+    #[test]
+    fn test_workspace_tab_order() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+        // Mark a session to get Marked tab
+        app.sessions[0].marked = true;
+        app.tab_state.rebuild_tabs(&app.sessions);
+
+        // Order: All → Workspace(dev) → Workspace(staging) → Marked → Project(...)
+        let tab_names: Vec<String> = app.tab_state.tabs.iter().map(|t| match t {
+            Tab::All => "All".to_string(),
+            Tab::Marked => "Marked".to_string(),
+            Tab::Workspace(w) => format!("Workspace({w})"),
+            Tab::Project(p) => format!("Project({p})"),
+        }).collect();
+
+        let all_pos = tab_names.iter().position(|t| t == "All").unwrap();
+        let ws_pos = tab_names.iter().position(|t| t.starts_with("Workspace")).unwrap();
+        let marked_pos = tab_names.iter().position(|t| t == "Marked").unwrap();
+        let proj_pos = tab_names.iter().position(|t| t.starts_with("Project")).unwrap();
+
+        assert!(all_pos < ws_pos, "All should come before Workspace");
+        assert!(ws_pos < marked_pos, "Workspace should come before Marked");
+        assert!(marked_pos < proj_pos, "Marked should come before Project");
+    }
+
+    #[test]
+    fn test_workspace_tab_selection_maintained() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Select workspace tab
+        let ws_pos = app.tab_state.tabs.iter().position(|t| *t == Tab::Workspace("dev".to_string())).unwrap();
+        app.tab_state.selected_tab = ws_pos;
+
+        // Re-sync — selection should be maintained
+        app.sync_with_monitor(&monitor);
+        assert_eq!(*app.tab_state.current_tab(), Tab::Workspace("dev".to_string()));
     }
 
 }
