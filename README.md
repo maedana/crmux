@@ -2,7 +2,7 @@
 
 A Claude Code multiplexer in tmux.
 
-Running several Claude Code sessions in parallel?
+Juggling multiple Claude Code sessions in tmux?
 crmux gives you a single sidebar to see what every session is doing,
 preview their output, and send prompts — all without leaving tmux.
 
@@ -195,8 +195,6 @@ crmux-plan-search <project>
 - Incremental search: quickly find and jump to sessions by filtering with search keywords
 - Session bookmarks: save named groups of marked sessions as custom tabs alongside All/project tabs
 - State persistence: persist job queue and other state across restarts (hash the tmux snapshot—windows, session IDs, panes—and restore previous state when the fingerprint matches on next launch)
-- Core library extraction: extract tmux operations and session state management into a UI-independent library crate, including session creation and lifecycle management
-- Tauri desktop app: desktop application using the core library with HTML/CSS rendering (ANSI→HTML conversion) for flexible layout
 
 ## Limitations
 
@@ -205,6 +203,10 @@ Input mode uses tmux `send-keys` to forward keystrokes, which has inherent limit
 - **Modifier keys**: Some modifier key combinations (e.g. Shift+Enter, Ctrl+Enter) cannot be accurately reproduced via tmux `send-keys`
 - **Terminal dependency**: Terminals without Kitty keyboard protocol support (VTE-based terminals such as XFCE Terminal, GNOME Terminal) cannot distinguish some modified key events from their unmodified counterparts
 - **Paste on macOS**: `Cmd+v` is intercepted by the terminal emulator and never reaches crmux as a key event. Text paste works via bracketed paste, but image paste (used by Claude Code) cannot be forwarded. On Linux, `Ctrl+v` is forwarded as a key event, so image paste works through the target Claude Code session.
+
+## Acknowledgements
+
+crmux was inspired by [cmux](https://www.cmux.dev), which motivated me to build this project. Much respect!
 
 ## License
 
