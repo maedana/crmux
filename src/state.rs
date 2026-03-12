@@ -177,8 +177,8 @@ impl ManagedSession {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
     All,
-    Workspace(String),
     Marked,
+    Workspace(String),
     Project(String),
 }
 
@@ -208,6 +208,10 @@ impl TabState {
 
         let mut new_tabs = vec![Tab::All];
 
+        if sessions.iter().any(|s| s.marked) {
+            new_tabs.push(Tab::Marked);
+        }
+
         // Add Workspace tabs when 2+ unique tmux sessions exist
         let mut tmux_sessions: Vec<String> = sessions
             .iter()
@@ -219,10 +223,6 @@ impl TabState {
             for ws in tmux_sessions {
                 new_tabs.push(Tab::Workspace(ws));
             }
-        }
-
-        if sessions.iter().any(|s| s.marked) {
-            new_tabs.push(Tab::Marked);
         }
         for p in projects {
             new_tabs.push(Tab::Project(p));
@@ -3085,7 +3085,7 @@ mod tests {
         app.sessions[0].marked = true;
         app.tab_state.rebuild_tabs(&app.sessions);
 
-        // Order: All → Workspace(dev) → Workspace(staging) → Marked → Project(...)
+        // Order: All → Marked → Workspace(dev) → Workspace(staging) → Project(...)
         let tab_names: Vec<String> = app.tab_state.tabs.iter().map(|t| match t {
             Tab::All => "All".to_string(),
             Tab::Marked => "Marked".to_string(),
@@ -3094,13 +3094,13 @@ mod tests {
         }).collect();
 
         let all_pos = tab_names.iter().position(|t| t == "All").unwrap();
-        let ws_pos = tab_names.iter().position(|t| t.starts_with("Workspace")).unwrap();
         let marked_pos = tab_names.iter().position(|t| t == "Marked").unwrap();
+        let ws_pos = tab_names.iter().position(|t| t.starts_with("Workspace")).unwrap();
         let proj_pos = tab_names.iter().position(|t| t.starts_with("Project")).unwrap();
 
-        assert!(all_pos < ws_pos, "All should come before Workspace");
-        assert!(ws_pos < marked_pos, "Workspace should come before Marked");
-        assert!(marked_pos < proj_pos, "Marked should come before Project");
+        assert!(all_pos < marked_pos, "All should come before Marked");
+        assert!(marked_pos < ws_pos, "Marked should come before Workspace");
+        assert!(ws_pos < proj_pos, "Workspace should come before Project");
     }
 
     #[test]

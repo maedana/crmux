@@ -562,9 +562,9 @@ fn draw_tab_bar(f: &mut ratatui::Frame, tab_state: &TabState, area: Rect) {
         .map(|(i, tab)| {
             let name = match tab {
                 Tab::All => "All".to_string(),
-                Tab::Workspace(w) => format!("${w}"),
+                Tab::Workspace(w) => format!("@{w}"),
                 Tab::Marked => "Marked".to_string(),
-                Tab::Project(p) => p.clone(),
+                Tab::Project(p) => format!("+{p}"),
             };
             if i == tab_state.selected_tab {
                 format!("[{name}]")
@@ -747,9 +747,10 @@ fn draw_sessions_list(
     tab_state: &TabState,
 ) {
     let block_title = match tab_state.current_tab() {
-        Tab::All => format!("Sessions ({})", sessions.len()),
+        Tab::All => format!("All Sessions ({})", sessions.len()),
         Tab::Marked => format!("Marked ({})", sessions.len()),
-        Tab::Workspace(name) | Tab::Project(name) => format!("{name} ({})", sessions.len()),
+        Tab::Workspace(name) => format!("Workspace @{name} ({})", sessions.len()),
+        Tab::Project(name) => format!("Project {name} ({})", sessions.len()),
     };
     let block = Block::default()
         .title(block_title)
