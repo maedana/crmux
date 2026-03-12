@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Auto-scale MainVertical main pane width based on content (60-80%)
+
 ## 0.14.0
 
 ### Added
