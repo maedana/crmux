@@ -1,15 +1,16 @@
 # crmux
 
-A session multiplexer for Claude Code in tmux.
+A Claude Code multiplexer in tmux.
 
-Inspired by [cmux](https://www.cmux.dev). crmux brings a similar multi-session management experience using tmux and a terminal UI.
+Running several Claude Code sessions in parallel?
+crmux gives you a single sidebar to see what every session is doing,
+preview their output, and send prompts — all without leaving tmux.
 
-- Monitor multiple Claude Code sessions from a single sidebar and preview their output
-- Mark sessions to preview multiple panes simultaneously
-- Switch to any session's tmux pane instantly
-- Send prompts directly via tmux `send-keys` in input mode without leaving crmux
-- Pulse animation to highlight sessions that need attention (approval idle, stale idle)
-- Programmable RPC interface: send prompts to idle sessions by project name from scripts and external tools
+- **See everything at a glance** — all sessions with live status, permission mode,
+  repo, branch, worktree, and visual alerts for approval requests and completions
+- **Just a tmux pane** — nothing changes; your vim, shells, and tools stay as they are
+- **Scriptable** — send prompts to idle sessions by repo name via RPC,
+  no need to look up tmux pane IDs
 
 ## Demo
 ![gif][1]
