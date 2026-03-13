@@ -2,27 +2,12 @@
 # Record crmux demo GIF using ffmpeg + xdotool
 #
 # Usage:
-#   bash demos/record.sh          # Normal recording mode
-#   bash demos/record.sh --debug  # Debug mode: no recording, step through scenes
+#   bash demos/record.sh
 
 set -e
 
-DEBUG=false
-if [[ "$1" == "--debug" ]]; then
-  DEBUG=true
-  echo "[DEBUG MODE] 動画録画なし、シーンごとにy/nで進行"
-fi
-
-confirm() {
-  if $DEBUG; then
-    read -p "$1 (y/n): " ans
-    [[ "$ans" == "y" || "$ans" == "Y" ]]
-  fi
-}
-
 OUTPUT="demos/demo.gif"
 TMP_VIDEO="/tmp/crmux-demo.mp4"
-DURATION=20
 
 # --- Demo tmux session setup ---
 if ! tmux has-session -t demo 2>/dev/null; then
@@ -47,13 +32,6 @@ if ! tmux has-session -t demo 2>/dev/null; then
   tmux list-windows -t demo
   tmux list-panes -t demo -a | grep "^demo:"
 
-  if $DEBUG; then
-    if ! confirm "セッション作成完了。claudeを起動する?"; then
-      echo "中断しました。"
-      exit 0
-    fi
-  fi
-
   # Launch claude in all 6 panes of windows 1-3
   for pane in demo:1.0 demo:1.1 demo:2.0 demo:2.1 demo:3.0 demo:3.1; do
     tmux send-keys -t "$pane" "cd ~/src/github.com/maedana/crmux && claude --permission-mode plan" Enter
@@ -61,13 +39,6 @@ if ! tmux has-session -t demo 2>/dev/null; then
 
   echo "Claudeの起動を待っています..."
   sleep 15
-
-  if $DEBUG; then
-    if ! confirm "プロンプトを送信する?"; then
-      echo "中断しました。"
-      exit 0
-    fi
-  fi
 
   # Send simple prompts to 5 claude sessions
   PROMPTS=(
@@ -89,99 +60,86 @@ else
   echo "Demo tmux session already exists."
 fi
 
-read -p "準備ができたらEnterを押してください... "
+# --- Recording setup ---
+echo "Click on the tmux window you want to record..."
+WINDOW_ID=$(xdotool selectwindow)
 
-# --- Recording setup (skip in debug mode) ---
-if ! $DEBUG; then
-  screenkey --font-color green --font-size medium --timeout 1.5 --no-systray --opacity 0.7 --compr-cnt 3 &
-  SCREENKEY_PID=$!
-  sleep 2
+eval "$(xdotool getwindowgeometry --shell "$WINDOW_ID")"
+WIDTH=$((WIDTH / 2 * 2))
+HEIGHT=$((HEIGHT / 2 * 2))
+xdotool windowfocus --sync "$WINDOW_ID"
 
-  echo "Click on the tmux window you want to record..."
-  WINDOW_ID=$(xdotool selectwindow)
+echo "Recording window $WINDOW_ID (${WIDTH}x${HEIGHT})..."
 
-  eval "$(xdotool getwindowgeometry --shell "$WINDOW_ID")"
-  xdotool windowfocus --sync "$WINDOW_ID"
-
-  echo "Recording window $WINDOW_ID (${WIDTH}x${HEIGHT}) for ${DURATION}s..."
-
-  ffmpeg -y -video_size "${WIDTH}x${HEIGHT}" \
-    -framerate 15 \
-    -f x11grab -i "$DISPLAY+${X},${Y}" \
-    -t "$DURATION" \
-    -pix_fmt yuv420p \
-    "$TMP_VIDEO" &>/dev/null &
-  FFMPEG_PID=$!
-  sleep 2
-fi
+ffmpeg -y -video_size "${WIDTH}x${HEIGHT}" \
+  -framerate 15 \
+  -f x11grab -i "$DISPLAY+${X},${Y}" \
+  -pix_fmt yuv420p \
+  "$TMP_VIDEO" &>/dev/null &
+FFMPEG_PID=$!
+sleep 2
 
 # --- Scene 1: Juggling between panes (~3s) ---
-if ! $DEBUG || confirm "Scene 1: ペイン切り替えを実行する?"; then
-  echo "Scene 1: Juggling between panes..."
-  for pane in demo:1.0 demo:1.1 demo:2.0 demo:2.1; do
-    tmux select-window -t "${pane%.*}"
-    tmux select-pane -t "$pane"
-    sleep 0.7
-  done
-fi
+echo "Scene 1: Juggling between panes..."
+for pane in demo:1.0 demo:1.1 demo:2.0 demo:2.1; do
+  tmux select-window -t "${pane%.*}"
+  tmux select-pane -t "$pane"
+  sleep 0.7
+done
 
 # --- Scene 2: Launch crmux (~3s) ---
-if ! $DEBUG || confirm "Scene 2: crmuxを起動する?"; then
-  echo "Scene 2: Launch crmux..."
-  tmux select-window -t demo:4
-  sleep 0.5
-  tmux send-keys -t demo:4 "crmux -w demo" Enter
-  sleep 2
-fi
+echo "Scene 2: Launch crmux..."
+tmux select-window -t demo:4
+sleep 0.5
+tmux send-keys -t demo:4 "crmux -w demo"
+sleep 1
+tmux send-keys -t demo:4 Enter
+sleep 2
 
 # --- Scene 3: Preview sessions (~3s) ---
-if ! $DEBUG || confirm "Scene 3: セッションプレビューする?"; then
-  echo "Scene 3: Preview sessions..."
-  tmux send-keys -t demo:4 1
-  sleep 1
-  tmux send-keys -t demo:4 3
-  sleep 1
-  tmux send-keys -t demo:4 5
-  sleep 1
-fi
+echo "Scene 3: Preview sessions..."
+tmux send-keys -t demo:4 1
+sleep 1
+tmux send-keys -t demo:4 3
+sleep 1
+tmux send-keys -t demo:4 5
+sleep 1
 
 # --- Scene 4: Send prompt via input mode (~5s) ---
-if ! $DEBUG || confirm "Scene 4: プロンプト送信する?"; then
-  echo "Scene 4: Reject plan and send new instruction via input mode..."
-  tmux send-keys -t demo:4 i
-  sleep 0.5
-  # Select option 4 "Type here to tell Claude what to change"
-  tmux send-keys -t demo:4 "4"
-  sleep 0.5
-  tmux send-keys -t demo:4 "no, just add a comment to Cargo.toml instead"
-  sleep 0.5
-  tmux send-keys -t demo:4 Enter
-  sleep 2
-  tmux send-keys -t demo:4 Escape
-  sleep 1
-fi
+echo "Scene 4: Send instruction via input mode..."
+tmux send-keys -t demo:4 i
+sleep 0.5
+# Select option 4 "Type here to tell Claude what to change"
+tmux send-keys -t demo:4 "4"
+sleep 0.5
+tmux send-keys -t demo:4 "Add a comment to Cargo.toml"
+sleep 0.5
+tmux send-keys -t demo:4 Enter
+sleep 2
+tmux send-keys -t demo:4 Escape
+sleep 3
 
-# --- Cleanup & convert (skip in debug mode) ---
-if ! $DEBUG; then
-  wait $FFMPEG_PID 2>/dev/null || true
-  kill $SCREENKEY_PID 2>/dev/null || true
+# --- Cleanup & convert ---
+kill -INT $FFMPEG_PID 2>/dev/null || true
+wait $FFMPEG_PID 2>/dev/null || true
 
-  echo "Converting to GIF..."
-  ffmpeg -y -i "$TMP_VIDEO" \
-    -vf "fps=10,scale=960:-1:flags=lanczos, \
-      drawtext=text='Which one needs approval?':enable='between(t,0,3)': \
-        fontcolor=white:fontsize=24:font=Sans: \
-        x=(w-text_w)/2:y=h-th-20: \
-        box=1:boxcolor=black@0.5:boxborderw=8, \
-      drawtext=text='Now you know.':enable='between(t,3,6)': \
-        fontcolor=white:fontsize=24:font=Sans: \
-        x=(w-text_w)/2:y=h-th-20: \
-        box=1:boxcolor=black@0.5:boxborderw=8, \
-      split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
-    "$OUTPUT" &>/dev/null
+echo "Converting to GIF..."
+ffmpeg -y -i "$TMP_VIDEO" \
+  -vf "fps=10,scale=960:-1:flags=lanczos, \
+    drawtext=text='Which one needs approval?':enable='between(t,2,5)': \
+      fontcolor=white:fontsize=24:font=Sans: \
+      x=(w-text_w)/2:y=h-th-20: \
+      box=1:boxcolor=black@0.5:boxborderw=8, \
+    drawtext=text='Now you know.':enable='between(t,6,9)': \
+      fontcolor=white:fontsize=24:font=Sans: \
+      x=(w-text_w)/2:y=h-th-20: \
+      box=1:boxcolor=black@0.5:boxborderw=8, \
+    drawtext=text='See everything at a glance.':enable='gte(t,13)': \
+      fontcolor=white:fontsize=24:font=Sans: \
+      x=(w-text_w)/2:y=h-th-20: \
+      box=1:boxcolor=black@0.5:boxborderw=8, \
+    split[s0][s1];[s0]palettegen[p];[s1][p]paletteuse" \
+  "$OUTPUT" &>/dev/null
 
-  rm -f "$TMP_VIDEO"
-  echo "Done: $OUTPUT"
-else
-  echo "[DEBUG] 全シーン完了"
-fi
+rm -f "$TMP_VIDEO"
+echo "Done: $OUTPUT"
