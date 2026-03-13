@@ -198,7 +198,7 @@ impl TabState {
 
     /// Rebuild the tab list from sessions' project names.
     /// Maintains the currently selected tab value if it still exists.
-    pub fn rebuild_tabs(&mut self, sessions: &[ManagedSession]) {
+    pub fn rebuild_tabs(&mut self, sessions: &[ManagedSession], initial_workspace: Option<&str>) -> bool {
         let mut projects: Vec<String> = sessions
             .iter()
             .map(|s| s.project_name.clone())
@@ -228,13 +228,25 @@ impl TabState {
             new_tabs.push(Tab::Project(p));
         }
 
-        // Maintain selection
-        let current = self.current_tab().clone();
-        self.tabs = new_tabs;
-        if let Some(pos) = self.tabs.iter().position(|t| *t == current) {
-            self.selected_tab = pos;
-        } else {
+        // Apply initial_workspace if provided, otherwise maintain selection
+        if let Some(ws) = initial_workspace {
+            let target = Tab::Workspace(ws.to_string());
+            self.tabs = new_tabs;
+            if let Some(pos) = self.tabs.iter().position(|t| *t == target) {
+                self.selected_tab = pos;
+                return true;
+            }
             self.selected_tab = 0; // fallback to All
+            false
+        } else {
+            let current = self.current_tab().clone();
+            self.tabs = new_tabs;
+            if let Some(pos) = self.tabs.iter().position(|t| *t == current) {
+                self.selected_tab = pos;
+            } else {
+                self.selected_tab = 0; // fallback to All
+            }
+            false
         }
     }
 
@@ -403,6 +415,8 @@ pub struct AppState {
     pub scanned_project_dirs: std::collections::HashSet<String>,
     /// Latest version available for update (None = unchecked or already latest).
     pub update_available: Option<String>,
+    /// Initial workspace to select on first tab rebuild (consumed after use).
+    initial_workspace: Option<String>,
 }
 
 impl AppState {
@@ -427,7 +441,13 @@ impl AppState {
             plans: Vec::new(),
             scanned_project_dirs: std::collections::HashSet::new(),
             update_available: None,
+            initial_workspace: None,
         }
+    }
+
+    /// Set the initial workspace to select on first tab rebuild.
+    pub fn set_initial_workspace(&mut self, workspace: Option<String>) {
+        self.initial_workspace = workspace;
     }
 
     /// Return sessions filtered by the current tab.
@@ -521,7 +541,10 @@ impl AppState {
         self.sessions.sort_by(|a, b| a.project_name.cmp(&b.project_name));
 
         // Rebuild tabs from current sessions
-        self.tab_state.rebuild_tabs(&self.sessions);
+        let matched = self.tab_state.rebuild_tabs(&self.sessions, self.initial_workspace.as_deref());
+        if matched {
+            self.initial_workspace = None;
+        }
 
         // Recalculate selected_index within filtered list
         let filtered = self.filtered_sessions();
@@ -2879,7 +2902,7 @@ mod tests {
 
         // Mark a session
         app.sessions[0].marked = true;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
 
         // Now Marked tab should appear
         assert!(app.tab_state.tabs.contains(&Tab::Marked));
@@ -2894,7 +2917,7 @@ mod tests {
         ]);
         app.sync_with_monitor(&monitor);
         app.sessions[0].marked = true;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
 
         // Marked tab should be at index 1 (right after All)
         assert_eq!(app.tab_state.tabs[0], Tab::All);
@@ -2914,7 +2937,7 @@ mod tests {
         // Mark first and third sessions
         app.sessions[0].marked = true;
         app.sessions[2].marked = true;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
 
         // Switch to Marked tab
         let marked_pos = app.tab_state.tabs.iter().position(|t| *t == Tab::Marked).unwrap();
@@ -2937,11 +2960,11 @@ mod tests {
 
         // Mark then unmark
         app.sessions[0].marked = true;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
         assert!(app.tab_state.tabs.contains(&Tab::Marked));
 
         app.sessions[0].marked = false;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
         assert!(!app.tab_state.tabs.contains(&Tab::Marked));
     }
 
@@ -2956,14 +2979,14 @@ mod tests {
 
         // Mark a session and select Marked tab
         app.sessions[0].marked = true;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
         let marked_pos = app.tab_state.tabs.iter().position(|t| *t == Tab::Marked).unwrap();
         app.tab_state.selected_tab = marked_pos;
         assert_eq!(*app.tab_state.current_tab(), Tab::Marked);
 
         // Unmark all → Marked tab disappears → fallback to All
         app.sessions[0].marked = false;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
         assert_eq!(*app.tab_state.current_tab(), Tab::All);
     }
 
@@ -3083,7 +3106,7 @@ mod tests {
         app.sync_with_monitor(&monitor);
         // Mark a session to get Marked tab
         app.sessions[0].marked = true;
-        app.tab_state.rebuild_tabs(&app.sessions);
+        app.tab_state.rebuild_tabs(&app.sessions, None);
 
         // Order: All → Marked → Workspace(dev) → Workspace(staging) → Project(...)
         let tab_names: Vec<String> = app.tab_state.tabs.iter().map(|t| match t {
@@ -3119,6 +3142,76 @@ mod tests {
         // Re-sync — selection should be maintained
         app.sync_with_monitor(&monitor);
         assert_eq!(*app.tab_state.current_tab(), Tab::Workspace("dev".to_string()));
+    }
+
+    #[test]
+    fn test_initial_workspace_selects_workspace_tab() {
+        let mut app = AppState::new(None);
+        app.set_initial_workspace(Some("staging".to_string()));
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert_eq!(*app.tab_state.current_tab(), Tab::Workspace("staging".to_string()));
+    }
+
+    #[test]
+    fn test_initial_workspace_fallback_to_all_when_not_found() {
+        let mut app = AppState::new(None);
+        app.set_initial_workspace(Some("nonexistent".to_string()));
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert_eq!(*app.tab_state.current_tab(), Tab::All);
+    }
+
+    #[test]
+    fn test_initial_workspace_consumed_after_first_rebuild() {
+        let mut app = AppState::new(None);
+        app.set_initial_workspace(Some("staging".to_string()));
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // First rebuild selects staging
+        assert_eq!(*app.tab_state.current_tab(), Tab::Workspace("staging".to_string()));
+
+        // Manually switch to All
+        app.tab_state.selected_tab = 0;
+
+        // Second sync should NOT override back to staging (initial_workspace consumed)
+        app.sync_with_monitor(&monitor);
+        assert_eq!(*app.tab_state.current_tab(), Tab::All);
+    }
+
+    #[test]
+    fn test_initial_workspace_deferred_until_sessions_arrive() {
+        let mut app = AppState::new(None);
+        app.set_initial_workspace(Some("staging".to_string()));
+
+        // First sync: no sessions yet (empty monitor)
+        let empty_monitor = make_monitor(vec![]);
+        app.sync_with_monitor(&empty_monitor);
+
+        // Should still be All (no workspace tabs exist)
+        assert_eq!(*app.tab_state.current_tab(), Tab::All);
+
+        // Second sync: sessions arrive
+        let monitor = make_monitor(vec![
+            make_session(100, "dev:%1", "project-a", ClaudeState::Idle),
+            make_session(200, "staging:%2", "project-b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        // Now staging workspace should be selected
+        assert_eq!(*app.tab_state.current_tab(), Tab::Workspace("staging".to_string()));
     }
 
 }

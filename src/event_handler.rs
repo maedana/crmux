@@ -1538,7 +1538,7 @@ mod tests {
             tmux_session: String::new(),
             });
         }
-        state.tab_state.rebuild_tabs(&state.sessions);
+        state.tab_state.rebuild_tabs(&state.sessions, None);
         state
     }
 

@@ -318,7 +318,7 @@ fn launch_claudeye() -> Option<std::process::Child> {
 }
 
 /// Run the TUI application.
-pub fn run() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run(initial_workspace: Option<String>) -> Result<(), Box<dyn std::error::Error>> {
     let own_pid = std::process::id();
 
     // Start monitor polling
@@ -347,6 +347,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let app_state = {
         let mut state = AppState::new(Some(own_pid));
+        state.set_initial_workspace(initial_workspace);
         if let Ok(cwd) = std::env::current_dir() {
             let cwd_str = cwd.to_string_lossy();
             let project_name = cwd

@@ -12,6 +12,10 @@ mod update;
 #[derive(Parser)]
 #[command(version, about)]
 struct Cli {
+    /// Initial workspace (tmux session name) to filter by
+    #[arg(short, long)]
+    workspace: Option<String>,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -95,7 +99,7 @@ fn main() {
                 std::process::exit(1);
             }
 
-            if let Err(e) = app::run() {
+            if let Err(e) = app::run(cli.workspace) {
                 eprintln!("crmux error: {e}");
                 std::process::exit(1);
             }
