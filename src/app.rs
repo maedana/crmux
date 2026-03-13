@@ -49,11 +49,12 @@ fn strip_osc8_hyperlinks(input: &str) -> String {
 }
 
 /// Capture a tmux pane, strip OSC8 hyperlinks, and trim trailing blank lines.
-fn capture_pane_content(pane_id: &str, scrollback_lines: Option<u16>) -> String {
-    let raw = scrollback_lines.map_or_else(
-        || tmux_claude_state::tmux::capture_pane_with_ansi(pane_id),
-        |lines| capture_pane_with_scrollback(pane_id, lines),
-    );
+fn capture_pane_content(pane_id: &str, with_scrollback: bool) -> String {
+    let raw = if with_scrollback {
+        capture_pane_with_scrollback(pane_id)
+    } else {
+        tmux_claude_state::tmux::capture_pane_with_ansi(pane_id)
+    };
     strip_osc8_hyperlinks(&raw).trim_end().to_string()
 }
 
@@ -248,11 +249,10 @@ pub fn strip_ansi_for_prompt(s: &str) -> String {
     result
 }
 
-/// Capture a tmux pane with scrollback history (ANSI escapes preserved).
-fn capture_pane_with_scrollback(pane_id: &str, scrollback_lines: u16) -> String {
-    let start_line = format!("-{scrollback_lines}");
+/// Capture a tmux pane with full scrollback history (ANSI escapes preserved).
+fn capture_pane_with_scrollback(pane_id: &str) -> String {
     let output = Command::new("tmux")
-        .args(["capture-pane", "-p", "-e", "-S", &start_line, "-t", pane_id])
+        .args(["capture-pane", "-p", "-e", "-S", "-", "-t", pane_id])
         .stdin(Stdio::null())
         .stderr(Stdio::null())
         .output();
@@ -484,12 +484,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 crate::state::LayoutMode::Single => {
                     // Show the selected session only
                     if let Some(session) = state.selected_session() {
-                        let content = if state.preview_scroll > 0 {
-                            let scrollback_lines = state.preview_height.saturating_mul(3);
-                            capture_pane_content(&session.pane_id, Some(scrollback_lines))
-                        } else {
-                            capture_pane_content(&session.pane_id, None)
-                        };
+                        let content = capture_pane_content(&session.pane_id, state.preview_scroll > 0);
                         let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
                         state.preview_contents = vec![PreviewEntry {
                             name: session.project_name.clone(),
@@ -518,13 +513,7 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                         .map(|(i, s)| {
                             let is_focused =
                                 selected_pane.as_deref() == Some(s.pane_id.as_str());
-                            let content = if is_focused && state.preview_scroll > 0 {
-                                let scrollback_lines =
-                                    state.preview_height.saturating_mul(3);
-                                capture_pane_content(&s.pane_id, Some(scrollback_lines))
-                            } else {
-                                capture_pane_content(&s.pane_id, None)
-                            };
+                            let content = capture_pane_content(&s.pane_id, is_focused && state.preview_scroll > 0);
                             let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
                             PreviewEntry {
                                 name: s.project_name.clone(),
