@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.15.0
+
 ### Added
 - Workspace filter tabs: tmux sessions are treated as workspaces, with filter tabs and contextual block titles (e.g., "Workspace @dev (3)") appearing when 2+ tmux sessions exist (`--workspace` / `-w` option for initial selection)
 
