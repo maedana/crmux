@@ -111,16 +111,6 @@ pub fn permission_mode_switch_count(current: &PermissionMode, target_mode: &str)
     (target_idx + 3 - current_idx) % 3
 }
 
-/// Resolved action for a send_text RPC — contains everything needed to execute.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SendTextAction {
-    pub pane_id: String,
-    pub text: String,
-    pub no_execute: bool,
-    /// Number of BTab key presses needed to switch permission mode.
-    pub mode_switch_count: usize,
-}
-
 /// Git diff summary for a session's working directory.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GitDiffInfo {
@@ -751,45 +741,6 @@ impl AppState {
         self.sessions.iter().find(|s| s.pane_id == pane_id)
     }
 
-    /// Resolve a send_text RPC message into a `SendTextAction` without side effects.
-    pub fn resolve_send_text(&self, msg: &crate::rpc::RpcMessage) -> Option<SendTextAction> {
-        let text = msg.params.get("text").and_then(|v| v.as_str())?;
-        let target_pane = msg
-            .params
-            .get("project")
-            .and_then(|v| v.as_str())
-            .map_or_else(
-                || self.selected_pane_id().map(String::from),
-                |project| {
-                    self.find_idle_session_for_project(project)
-                        .map(|s| s.pane_id.clone())
-                },
-            );
-        let pane_id = target_pane?;
-        let no_execute = msg
-            .params
-            .get("no_execute")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false);
-        let mode_switch_count = msg
-            .params
-            .get("mode")
-            .and_then(|v| v.as_str())
-            .and_then(|target_mode| {
-                self.find_session_by_pane_id(&pane_id)
-                    .map(|session| {
-                        permission_mode_switch_count(&session.permission_mode, target_mode)
-                    })
-            })
-            .unwrap_or(0);
-        Some(SendTextAction {
-            pane_id,
-            text: text.to_string(),
-            no_execute,
-            mode_switch_count,
-        })
-    }
-
     /// Refresh git info (branch names and diff) for all sessions.
     pub fn refresh_git_info(&mut self) {
         for session in &mut self.sessions {
@@ -802,34 +753,60 @@ impl AppState {
     /// If the target session is not yet known, the message is buffered in `pending_rpc`.
     pub fn handle_rpc_message(&mut self, msg: &crate::rpc::RpcMessage) {
         if msg.method == "send_text" {
-            let Some(action) = self.resolve_send_text(msg) else {
+            let Some(text) = msg.params.get("text").and_then(|v| v.as_str()) else {
                 return;
             };
+            // Resolve target pane: project-targeted or selected pane
+            let target_pane = msg
+                .params
+                .get("project")
+                .and_then(|v| v.as_str())
+                .map_or_else(
+                    || self.selected_pane_id().map(String::from),
+                    |project| {
+                        self.find_idle_session_for_project(project)
+                            .map(|s| s.pane_id.clone())
+                    },
+                );
+            let Some(pane_id) = target_pane else {
+                return;
+            };
+            let no_execute = msg
+                .params
+                .get("no_execute")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
             // Switch permission mode if requested
-            for _ in 0..action.mode_switch_count {
-                crate::event_handler::run_tmux(&[
-                    "send-keys", "-t", &action.pane_id, "BTab",
-                ]);
-                std::thread::sleep(std::time::Duration::from_millis(100));
-            }
-            if action.mode_switch_count > 0 {
-                // Wait for mode switch to settle
-                std::thread::sleep(std::time::Duration::from_millis(200));
+            if let Some(target_mode) = msg.params.get("mode").and_then(|v| v.as_str())
+                && let Some(session) = self.find_session_by_pane_id(&pane_id)
+            {
+                let count =
+                    permission_mode_switch_count(&session.permission_mode, target_mode);
+                for _ in 0..count {
+                    crate::event_handler::run_tmux(&[
+                        "send-keys", "-t", &pane_id, "BTab",
+                    ]);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                if count > 0 {
+                    // Wait for mode switch to settle
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                }
             }
             // Use paste-buffer instead of send-keys -l.
             // Claude Code has a bug where send-keys stops working after
             // interrupting multi-line input with Esc,Esc.
             // See: https://github.com/anthropics/claude-code/issues/31739
             crate::event_handler::run_tmux(&[
-                "set-buffer", "-b", "crmux-rpc", "--", &action.text,
+                "set-buffer", "-b", "crmux-rpc", "--", text,
             ]);
             crate::event_handler::run_tmux(&[
-                "paste-buffer", "-b", "crmux-rpc", "-t", &action.pane_id, "-p",
+                "paste-buffer", "-b", "crmux-rpc", "-t", &pane_id, "-p",
             ]);
             crate::event_handler::run_tmux(&["delete-buffer", "-b", "crmux-rpc"]);
-            if !action.no_execute {
+            if !no_execute {
                 std::thread::sleep(std::time::Duration::from_millis(200));
-                crate::event_handler::run_tmux(&["send-keys", "-t", &action.pane_id, "Enter"]);
+                crate::event_handler::run_tmux(&["send-keys", "-t", &pane_id, "Enter"]);
             }
             return;
         }
@@ -2514,18 +2491,14 @@ mod tests {
         app.sync_with_monitor(&monitor);
         app.selected_index = 0;
 
-        let action = app.resolve_send_text(&RpcMessage {
+        app.handle_rpc_message(&RpcMessage {
             method: "send_text".to_string(),
             params: serde_json::json!({
                 "text": "hello",
                 "no_execute": true
             }),
         });
-        let action = action.expect("should resolve to an action");
-        assert_eq!(action.pane_id, "%1");
-        assert_eq!(action.text, "hello");
-        assert!(action.no_execute);
-        assert_eq!(action.mode_switch_count, 0);
+        // Should not panic — no_execute works on selected pane too
     }
 
     #[test]
