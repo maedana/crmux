@@ -69,7 +69,7 @@ crmux
 
 ### Keybindings
 
-Keybindings are shown in the app footer. Run `crmux -h` or press `?` in the app to see all available keybindings.
+Vim-like modal interface: navigate sessions in normal mode (`h`/`j`/`k`/`l`), press `i` to enter input mode and send keystrokes to the selected session, `Esc` to return. Press `?` for the full keybinding list.
 ## Claude Code Hook Setup (Recommended)
 
 Configuring `statusLine` enables crmux to display model name, context window usage, auto-generated session titles, and other metadata in the sidebar. This is strongly recommended for the best experience.
