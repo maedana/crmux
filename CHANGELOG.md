@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- Workspace filter tabs: tmux sessions are treated as workspaces, with filter tabs and contextual block titles (e.g., "Workspace @dev (3)") appearing when 2+ tmux sessions exist (`--workspace` / `-w` option for initial selection)
+
+### Changed
+- Tab labels use `@` prefix for workspaces and `+` prefix for projects (e.g., `@dev`, `+myapp`)
+
 ## 0.14.1
 
 ### Changed
