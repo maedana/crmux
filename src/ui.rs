@@ -105,11 +105,12 @@ fn pulse_bg_color(base: Color) -> Color {
 pub fn format_elapsed(since: Instant) -> String {
     let secs = since.elapsed().as_secs();
     if secs < 60 {
-        format!("{secs}s")
+        format!("{secs:2}s")
     } else if secs < 3600 {
-        format!("{}m", secs / 60)
+        format!("{:2}m", secs / 60)
     } else {
-        format!("{}h", secs / 3600)
+        let hours = (secs / 3600).min(99);
+        format!("{hours:2}h")
     }
 }
 
@@ -906,19 +907,19 @@ mod tests {
     fn test_format_elapsed_seconds() {
         let now = Instant::now();
         let result = format_elapsed(now);
-        assert_eq!(result, "0s");
+        assert_eq!(result, " 0s");
     }
 
     #[test]
     fn test_format_elapsed_minutes() {
         let since = Instant::now() - std::time::Duration::from_secs(120);
-        assert_eq!(format_elapsed(since), "2m");
+        assert_eq!(format_elapsed(since), " 2m");
     }
 
     #[test]
     fn test_format_elapsed_hours() {
         let since = Instant::now() - std::time::Duration::from_secs(7200);
-        assert_eq!(format_elapsed(since), "2h");
+        assert_eq!(format_elapsed(since), " 2h");
     }
 
     #[test]
@@ -930,7 +931,7 @@ mod tests {
     #[test]
     fn test_format_elapsed_boundary_60s() {
         let since = Instant::now() - std::time::Duration::from_secs(60);
-        assert_eq!(format_elapsed(since), "1m");
+        assert_eq!(format_elapsed(since), " 1m");
     }
 
     #[test]
@@ -942,7 +943,13 @@ mod tests {
     #[test]
     fn test_format_elapsed_boundary_3600s() {
         let since = Instant::now() - std::time::Duration::from_secs(3600);
-        assert_eq!(format_elapsed(since), "1h");
+        assert_eq!(format_elapsed(since), " 1h");
+    }
+
+    #[test]
+    fn test_format_elapsed_capped_at_99h() {
+        let since = Instant::now() - std::time::Duration::from_secs(100 * 3600);
+        assert_eq!(format_elapsed(since), "99h");
     }
 
     #[test]
