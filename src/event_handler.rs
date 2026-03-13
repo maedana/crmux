@@ -1,14 +1,19 @@
 use crossterm::event::{Event, KeyCode, KeyModifiers};
 
+#[cfg(not(test))]
 use std::process::{Command, Stdio};
 
 use crate::state::{AppState, InputMode};
 
 /// Deactivate IME (fcitx5) so that Normal-mode keybindings work immediately.
 /// Silently ignored when fcitx5 is not installed.
+#[cfg(not(test))]
 fn ime_off() {
     Command::new("fcitx5-remote").arg("-c").status().ok();
 }
+
+#[cfg(test)]
+fn ime_off() {}
 
 /// Action to take after handling a keyboard event.
 #[derive(Debug, PartialEq, Eq)]
@@ -494,6 +499,7 @@ const fn keycode_to_tmux_name(code: KeyCode) -> Option<&'static str> {
 }
 
 /// Run a tmux command with the given arguments, suppressing all I/O.
+#[cfg(not(test))]
 pub fn run_tmux(args: &[&str]) {
     let _ = Command::new("tmux")
         .args(args)
@@ -502,6 +508,10 @@ pub fn run_tmux(args: &[&str]) {
         .stderr(Stdio::null())
         .output();
 }
+
+/// No-op stub so that tests never send real tmux commands.
+#[cfg(test)]
+pub fn run_tmux(_args: &[&str]) {}
 
 /// Run `tmux send-keys -t <pane_id> <extra_args>` and wait for completion.
 fn run_send_keys(pane_id: &str, extra_args: &[&str]) {
