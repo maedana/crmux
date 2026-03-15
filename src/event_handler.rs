@@ -206,9 +206,14 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             state.show_help = true;
             Action::Continue
         }
+        KeyCode::Char('t') => {
+            state.select_prev_selected();
+            Action::Continue
+        }
         KeyCode::Char(c @ '1'..='9') => {
             let idx = (c as usize) - ('1' as usize);
             if idx < crate::state::MAX_NUMBER_KEYS && idx < state.filtered_sessions().len() {
+                state.prev_selected_index = Some(state.selected_index);
                 state.selected_index = idx;
                 state.preview_scroll = 0;
             }
@@ -1687,6 +1692,57 @@ mod tests {
         let mut state = AppState::new(None);
         let action = handle_key_event(&make_key_event(KeyCode::Char('1')), &mut state);
         assert_eq!(action, Action::Continue);
+    }
+
+    // --- t key (prev_selected) ---
+
+    #[test]
+    fn test_t_key_switches_to_prev_selected() {
+        let mut state = make_state_with_sessions(3);
+        state.selected_index = 0;
+        // Move to index 2
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        assert_eq!(state.selected_index, 2);
+        assert_eq!(state.prev_selected_index, Some(1));
+
+        // Press t to go back to prev (1)
+        handle_key_event(&make_key_event(KeyCode::Char('t')), &mut state);
+        assert_eq!(state.selected_index, 1);
+        assert_eq!(state.prev_selected_index, Some(2));
+    }
+
+    #[test]
+    fn test_t_key_toggles_back_and_forth() {
+        let mut state = make_state_with_sessions(3);
+        state.selected_index = 0;
+        // Move to 2
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+        handle_key_event(&make_key_event(KeyCode::Char('j')), &mut state);
+
+        handle_key_event(&make_key_event(KeyCode::Char('t')), &mut state);
+        assert_eq!(state.selected_index, 1);
+
+        handle_key_event(&make_key_event(KeyCode::Char('t')), &mut state);
+        assert_eq!(state.selected_index, 2);
+    }
+
+    #[test]
+    fn test_t_key_noop_when_no_prev() {
+        let mut state = make_state_with_sessions(3);
+        assert_eq!(state.prev_selected_index, None);
+        handle_key_event(&make_key_event(KeyCode::Char('t')), &mut state);
+        assert_eq!(state.selected_index, 0); // unchanged
+    }
+
+    #[test]
+    fn test_number_key_saves_prev_selected() {
+        let mut state = make_state_with_sessions(3);
+        state.selected_index = 0;
+        // Press '3' to select index 2
+        handle_key_event(&make_key_event(KeyCode::Char('3')), &mut state);
+        assert_eq!(state.selected_index, 2);
+        assert_eq!(state.prev_selected_index, Some(0));
     }
 
 }

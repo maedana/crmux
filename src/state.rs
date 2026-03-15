@@ -381,6 +381,8 @@ pub struct AppState {
     pub sessions: Vec<ManagedSession>,
     /// Index of the currently selected session.
     pub selected_index: usize,
+    /// Index of the previously selected session (for `t` key toggle).
+    pub prev_selected_index: Option<usize>,
     /// PID of our own sidebar pane's process (excluded from aggregation).
     pub own_pid: Option<u32>,
     /// Preview contents for each visible pane.
@@ -424,6 +426,7 @@ impl AppState {
         Self {
             sessions: Vec::new(),
             selected_index: 0,
+            prev_selected_index: None,
             own_pid,
             preview_contents: Vec::new(),
             input_mode: InputMode::Normal,
@@ -547,19 +550,26 @@ impl AppState {
         }
 
         // Recalculate selected_index within filtered list
-        let filtered = self.filtered_sessions();
+        let filtered_len = self.filtered_sessions().len();
         if let Some(pid) = selected_pid {
-            if let Some(pos) = filtered.iter().position(|s| s.pid == pid) {
+            if let Some(pos) = self.filtered_sessions().iter().position(|s| s.pid == pid) {
                 self.selected_index = pos;
-            } else if !filtered.is_empty() {
-                self.selected_index = self.selected_index.min(filtered.len() - 1);
+            } else if filtered_len > 0 {
+                self.selected_index = self.selected_index.min(filtered_len - 1);
             } else {
                 self.selected_index = 0;
             }
-        } else if !filtered.is_empty() {
-            self.selected_index = self.selected_index.min(filtered.len() - 1);
+        } else if filtered_len > 0 {
+            self.selected_index = self.selected_index.min(filtered_len - 1);
         } else {
             self.selected_index = 0;
+        }
+
+        // Clamp prev_selected_index to filtered range
+        if let Some(prev) = self.prev_selected_index
+            && (filtered_len == 0 || prev >= filtered_len)
+        {
+            self.prev_selected_index = None;
         }
 
         // Apply buffered RPC messages to newly added sessions
@@ -586,6 +596,7 @@ impl AppState {
     pub fn select_next(&mut self) {
         let len = self.filtered_sessions().len();
         if len > 0 {
+            self.prev_selected_index = Some(self.selected_index);
             self.selected_index = (self.selected_index + 1) % len;
         }
         self.preview_scroll = 0;
@@ -595,6 +606,7 @@ impl AppState {
     pub fn select_prev(&mut self) {
         let len = self.filtered_sessions().len();
         if len > 0 {
+            self.prev_selected_index = Some(self.selected_index);
             if self.selected_index == 0 {
                 self.selected_index = len - 1;
             } else {
@@ -602,6 +614,18 @@ impl AppState {
             }
         }
         self.preview_scroll = 0;
+    }
+
+    /// Switch to the previously selected session (swap selected and prev).
+    pub fn select_prev_selected(&mut self) {
+        if let Some(prev) = self.prev_selected_index {
+            let len = self.filtered_sessions().len();
+            if prev < len {
+                self.prev_selected_index = Some(self.selected_index);
+                self.selected_index = prev;
+                self.preview_scroll = 0;
+            }
+        }
     }
 
     /// Scroll the preview up by `amount`, clamped to `max_scroll`.
@@ -3212,6 +3236,131 @@ mod tests {
 
         // Now staging workspace should be selected
         assert_eq!(*app.tab_state.current_tab(), Tab::Workspace("staging".to_string()));
+    }
+
+    // --- prev_selected_index (t key) ---
+
+    #[test]
+    fn test_select_next_saves_prev_selected() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+            make_session(300, "%3", "c", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert_eq!(app.prev_selected_index, None);
+        app.select_next(); // 0 -> 1
+        assert_eq!(app.prev_selected_index, Some(0));
+        app.select_next(); // 1 -> 2
+        assert_eq!(app.prev_selected_index, Some(1));
+    }
+
+    #[test]
+    fn test_select_prev_saves_prev_selected() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+            make_session(300, "%3", "c", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.select_prev(); // 0 -> 2 (wrap)
+        assert_eq!(app.prev_selected_index, Some(0));
+    }
+
+    #[test]
+    fn test_select_prev_selected_swaps_indices() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+            make_session(300, "%3", "c", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.select_next(); // 0 -> 1, prev=0
+        app.select_next(); // 1 -> 2, prev=1
+        app.select_prev_selected(); // 2 -> 1, prev=2
+        assert_eq!(app.selected_index, 1);
+        assert_eq!(app.prev_selected_index, Some(2));
+    }
+
+    #[test]
+    fn test_select_prev_selected_toggles() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+            make_session(300, "%3", "c", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.select_next(); // 0 -> 1, prev=0
+        app.select_next(); // 1 -> 2, prev=1
+
+        app.select_prev_selected(); // 2 -> 1, prev=2
+        assert_eq!(app.selected_index, 1);
+
+        app.select_prev_selected(); // 1 -> 2, prev=1
+        assert_eq!(app.selected_index, 2);
+        assert_eq!(app.prev_selected_index, Some(1));
+    }
+
+    #[test]
+    fn test_select_prev_selected_noop_when_none() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        assert_eq!(app.prev_selected_index, None);
+        app.select_prev_selected();
+        assert_eq!(app.selected_index, 0); // unchanged
+        assert_eq!(app.prev_selected_index, None);
+    }
+
+    #[test]
+    fn test_select_prev_selected_resets_preview_scroll() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.select_next(); // 0 -> 1, prev=0
+        app.preview_scroll = 10;
+        app.select_prev_selected();
+        assert_eq!(app.preview_scroll, 0);
+    }
+
+    #[test]
+    fn test_prev_selected_index_clamped_on_session_removal() {
+        let mut app = AppState::new(None);
+        let monitor = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+            make_session(200, "%2", "b", ClaudeState::Idle),
+            make_session(300, "%3", "c", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor);
+
+        app.select_next();
+        app.select_next(); // now at 2, prev=1
+        app.prev_selected_index = Some(2); // point to last item
+
+        // Remove sessions so only 1 remains
+        let monitor2 = make_monitor(vec![
+            make_session(100, "%1", "a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor2);
+
+        // prev_selected_index should be None (was 2, but only 1 session now)
+        assert_eq!(app.prev_selected_index, None);
     }
 
 }

@@ -243,7 +243,7 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
         InputMode::Normal => {
             let next_label = layout_mode.next().short_label();
             let v_label = format!("v:{next_label}");
-            spans.push(Span::raw(format!(" | hjkl:Nav 1-9:Select Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
+            spans.push(Span::raw(format!(" | hjkl:Nav 1-9:Select t:Last Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -668,6 +668,7 @@ Keybindings (Normal mode):
   gg             Scroll preview to top
   G              Scroll preview to bottom
   1-9            Select session by number
+  t              Switch to previously selected session
   s              Switch to tmux pane
   Space          Mark session (for filtering and broadcast)
   v              Cycle layout (MainV/Single/Grid/EvenH/EvenV/MainH)  // Update when LayoutMode::next() changes
