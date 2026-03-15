@@ -135,7 +135,7 @@ pub const fn permission_mode_icon(mode: &PermissionMode) -> &'static str {
 pub const fn state_label(state: &ClaudeState) -> &'static str {
     match state {
         ClaudeState::Working => "⚡",
-        ClaudeState::WaitingForApproval => "⚠️",
+        ClaudeState::WaitingForApproval => "⚠",
         ClaudeState::Idle => "💤",
     }
 }
@@ -957,7 +957,7 @@ mod tests {
     #[test]
     fn test_state_label() {
         assert_eq!(state_label(&ClaudeState::Working), "⚡");
-        assert_eq!(state_label(&ClaudeState::WaitingForApproval), "⚠️");
+        assert_eq!(state_label(&ClaudeState::WaitingForApproval), "⚠");
         assert_eq!(state_label(&ClaudeState::Idle), "💤");
     }
 
