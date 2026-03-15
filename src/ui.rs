@@ -88,16 +88,15 @@ fn pulse_factor() -> f64 {
     f64::midpoint((t * 16.0).sin(), 1.0) // 0.0 ~ 1.0
 }
 
-/// Calculate a pulsing background color (dimmed version of the base color).
-fn pulse_bg_color(base: Color) -> Color {
-    let intensity = pulse_factor() * 0.25; // 0.0 ~ 0.25
+/// Calculate a pulsing border color (50%–100% intensity of the base color).
+fn pulse_border_color(base: Color) -> Color {
+    let factor = f64::midpoint(pulse_factor(), 1.0); // 0.5 ~ 1.0
     let (r, g, b) = color_to_rgb(base);
-    // intensity is 0.0..=0.25, so result fits in u8 and is non-negative.
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     Color::Rgb(
-        (f64::from(r) * intensity) as u8,
-        (f64::from(g) * intensity) as u8,
-        (f64::from(b) * intensity) as u8,
+        (f64::from(r) * factor) as u8,
+        (f64::from(g) * factor) as u8,
+        (f64::from(b) * factor) as u8,
     )
 }
 
@@ -526,13 +525,15 @@ fn render_preview_cell(
     let color = state_color(&entry.state);
     let elapsed_secs = entry.state_changed_at.elapsed().as_secs();
     let is_pulsing = should_pulse(&entry.state, elapsed_secs, entry.has_worked);
+    let border_color = if is_pulsing && !is_focused {
+        pulse_border_color(color)
+    } else {
+        color
+    };
     let mut block = Block::default()
-        .title(format!("{title_prefix}{title}"))
+        .title(Span::styled(format!("{title_prefix}{title}"), Style::default().fg(color)))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(color));
-    if is_pulsing && !is_focused {
-        block = block.style(Style::default().bg(pulse_bg_color(color)));
-    }
+        .border_style(Style::default().fg(border_color));
     if let Some(info) = entry.git_diff.as_ref() {
         block = block.title_bottom(git_diff_line(info));
     }
@@ -798,13 +799,9 @@ fn draw_sessions_list(
         let text_color = color;
         let mark_indicator = if session.marked { "* " } else { "  " };
 
-        let border_style = Style::default().fg(color);
-
-        let bg_style = if is_pulsing {
-            Style::default().bg(pulse_bg_color(state_color(&session.state)))
-        } else {
-            Style::default()
-        };
+        let border_style = Style::default().fg(
+            if is_pulsing { pulse_border_color(color) } else { color }
+        );
 
         let title_prefix = if is_selected { SELECTED_ICON } else { "" };
         let card_title = format_title(&session.project_name, Some(idx), None, session.git_branch.as_ref(), session.worktree_name.as_ref());
@@ -836,9 +833,10 @@ fn draw_sessions_list(
             ));
             status_spans.push(Span::raw(" "));
         }
-        status_spans.push(Span::raw(label));
-        status_spans.push(Span::raw(" "));
-        status_spans.push(Span::raw(elapsed));
+        let status_fg = Style::default().fg(color);
+        status_spans.push(Span::styled(label, status_fg));
+        status_spans.push(Span::styled(" ", status_fg));
+        status_spans.push(Span::styled(elapsed, status_fg));
         let status_line = Line::from(status_spans);
         let is_editing_title = is_selected && input_mode == InputMode::Title;
         let combined_line = if is_editing_title {
@@ -877,7 +875,7 @@ fn draw_sessions_list(
             .borders(Borders::ALL)
             .border_style(card_border_style);
 
-        let paragraph = paragraph.block(block).style(bg_style);
+        let paragraph = paragraph.block(block);
 
         f.render_widget(paragraph, layout[idx]);
 
@@ -1045,14 +1043,6 @@ mod tests {
         let inner = Rect::new(10, 20, 80, 40);
         // scroll_y=3, crow=5 → y = 20 + (5-3) = 22
         assert_eq!(compute_cursor_pos(inner, Some((5, 3)), 3), Some((13, 22)));
-    }
-
-    // --- pulse_bg_color tests ---
-
-    #[test]
-    fn test_pulse_bg_color_returns_rgb() {
-        let result = pulse_bg_color(Color::LightRed);
-        assert!(matches!(result, Color::Rgb(_, _, _)));
     }
 
     #[test]
@@ -1395,15 +1385,23 @@ mod tests {
         assert!(text_len > 0, "Broadcast mode footer should produce non-empty text");
     }
 
+    // --- pulse_border_color tests ---
+
     #[test]
-    fn test_pulse_bg_color_within_intensity_range() {
-        // bg intensity ranges from 0.0 to 0.25
+    fn test_pulse_border_color_returns_rgb() {
+        let result = pulse_border_color(Color::LightRed);
+        assert!(matches!(result, Color::Rgb(_, _, _)));
+    }
+
+    #[test]
+    fn test_pulse_border_color_within_intensity_range() {
+        // border intensity ranges from 0.5 to 1.0
         let base = Color::White; // (255, 255, 255)
-        let result = pulse_bg_color(base);
+        let result = pulse_border_color(base);
         if let Color::Rgb(r, g, b) = result {
-            assert!(r <= 63, "r={r} exceeds max intensity");
-            assert!(g <= 63, "g={g} exceeds max intensity");
-            assert!(b <= 63, "b={b} exceeds max intensity");
+            assert!(r >= 127, "r={r} below min intensity");
+            assert!(g >= 127, "g={g} below min intensity");
+            assert!(b >= 127, "b={b} below min intensity");
         } else {
             panic!("Expected Color::Rgb");
         }
