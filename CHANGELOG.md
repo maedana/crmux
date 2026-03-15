@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.16.0
 
 ### Added
 - `t` key to toggle back to previously selected session
