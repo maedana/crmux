@@ -239,7 +239,7 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
             Style::default().fg(Color::Yellow),
         ));
     }
-    let input_keys = "Input(i:Selected I:Marked)";
+    let input_keys = "i:Insert I:Broadcast";
     match input_mode {
         InputMode::Normal => {
             let next_label = layout_mode.next().short_label();
@@ -268,7 +268,7 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
                 "-- BROADCAST --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | Keys sent to marked panes. Esc:Back"));
+            spans.push(Span::raw(" | Keys sent to all visible panes. Esc:Back"));
         }
         InputMode::Scroll => {
             spans.push(Span::raw(" "));
@@ -668,10 +668,10 @@ Keybindings (Normal mode):
   1-9            Select session by number
   t              Switch to previously selected session
   s              Switch to tmux pane
-  Space          Mark session (for filtering and broadcast)
+  Space          Mark session (for filtering)
   v              Cycle layout (MainV/Single/Grid/EvenH/EvenV/MainH)
   i              Enter input mode (send keys to the selected session)
-  I              Enter input mode (send keys to all marked sessions)
+  I              Enter broadcast mode (send keys to all visible sessions)
   e              Enter title mode (set a title for the session)
   o              Toggle claudeye overlay (requires claudeye >= 0.7.0)
   ?              Show this help
@@ -1187,7 +1187,7 @@ mod tests {
     fn test_footer_normal_mode_contains_broadcast_key() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::Single, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("I:Marked"), "Normal mode footer should contain 'I:Marked', got: {text}");
+        assert!(text.contains("I:Broadcast"), "Normal mode footer should contain 'I:Broadcast', got: {text}");
     }
 
     #[test]

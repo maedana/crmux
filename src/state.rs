@@ -675,11 +675,9 @@ impl AppState {
         }
     }
 
-    /// Return pane IDs of all marked sessions.
-    pub fn marked_pane_ids(&self) -> Vec<String> {
-        self.sessions
+    pub fn filtered_pane_ids(&self) -> Vec<String> {
+        self.filtered_sessions()
             .iter()
-            .filter(|s| s.marked)
             .map(|s| s.pane_id.clone())
             .collect()
     }
@@ -1308,38 +1306,6 @@ mod tests {
         app.sync_with_monitor(&monitor);
 
         assert!(app.sessions.iter().all(|s| !s.marked));
-    }
-
-    #[test]
-    fn test_marked_pane_ids_returns_marked_only() {
-        let mut app = AppState::new(None);
-        let monitor = make_monitor(vec![
-            make_session(100, "%1", "a", ClaudeState::Idle),
-            make_session(200, "%2", "b", ClaudeState::Idle),
-            make_session(300, "%3", "c", ClaudeState::Idle),
-        ]);
-        app.sync_with_monitor(&monitor);
-
-        app.selected_index = 0;
-        app.toggle_mark();
-        app.selected_index = 2;
-        app.toggle_mark();
-
-        let ids = app.marked_pane_ids();
-        assert_eq!(ids.len(), 2);
-        assert_eq!(ids[0], "%1");
-        assert_eq!(ids[1], "%3");
-    }
-
-    #[test]
-    fn test_marked_pane_ids_empty_when_none_marked() {
-        let mut app = AppState::new(None);
-        let monitor = make_monitor(vec![
-            make_session(100, "%1", "a", ClaudeState::Idle),
-        ]);
-        app.sync_with_monitor(&monitor);
-
-        assert!(app.marked_pane_ids().is_empty());
     }
 
     #[test]

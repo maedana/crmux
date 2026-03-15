@@ -96,7 +96,7 @@ fn handle_normal_esc(state: &mut AppState) {
             state.input_mode = InputMode::Input;
         }
         Some(InputMode::Broadcast) => {
-            for pane_id in state.marked_pane_ids() {
+            for pane_id in state.filtered_pane_ids() {
                 run_send_keys(&pane_id, &["Escape"]);
                 run_send_keys(&pane_id, &["Escape"]);
             }
@@ -159,7 +159,7 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             Action::Continue
         }
         KeyCode::Char('I') => {
-            if !state.marked_pane_ids().is_empty() {
+            if !state.filtered_pane_ids().is_empty() {
                 state.input_mode = InputMode::Broadcast;
                 state.reset_preview_scroll();
             }
@@ -241,7 +241,7 @@ fn handle_broadcast_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut App
         state.input_mode = InputMode::Normal;
         ime_off();
     } else {
-        send_key_to_marked_panes(code, modifiers, state);
+        send_key_to_filtered_panes(code, modifiers, state);
     }
     Action::Continue
 }
@@ -367,7 +367,7 @@ fn handle_scroll_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             Action::Continue
         }
         KeyCode::Char('I') => {
-            if !state.marked_pane_ids().is_empty() {
+            if !state.filtered_pane_ids().is_empty() {
                 state.reset_preview_scroll();
                 state.input_mode = InputMode::Broadcast;
             }
@@ -422,7 +422,7 @@ fn handle_paste_event(text: &str, state: &AppState) -> Action {
             }
         }
         InputMode::Broadcast => {
-            let pane_ids = state.marked_pane_ids();
+            let pane_ids = state.filtered_pane_ids();
             let refs: Vec<&str> = pane_ids.iter().map(String::as_str).collect();
             send_paste_to_panes(&refs, text);
         }
@@ -474,9 +474,9 @@ fn send_key_to_pane(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
     send_encoded_key(pane_id, code, modifiers);
 }
 
-/// Send a single key event to all marked tmux panes.
-fn send_key_to_marked_panes(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
-    for pane_id in state.marked_pane_ids() {
+/// Send a single key event to all filtered tmux panes.
+fn send_key_to_filtered_panes(code: KeyCode, modifiers: KeyModifiers, state: &AppState) {
+    for pane_id in state.filtered_pane_ids() {
         send_encoded_key(&pane_id, code, modifiers);
     }
 }
@@ -1028,8 +1028,8 @@ mod tests {
     }
 
     #[test]
-    fn test_shift_i_enters_broadcast_mode_with_marked_sessions() {
-        let mut state = make_state_with_marked_sessions();
+    fn test_shift_i_enters_broadcast_mode_with_sessions() {
+        let mut state = make_state_with_session();
         let action = handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
         assert_eq!(action, Action::Continue);
         assert_eq!(state.input_mode, InputMode::Broadcast);
@@ -1037,19 +1037,10 @@ mod tests {
 
     #[test]
     fn test_shift_i_resets_scroll_on_enter_broadcast_mode() {
-        let mut state = make_state_with_marked_sessions();
+        let mut state = make_state_with_session();
         state.preview_scroll = 42;
         handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
         assert_eq!(state.preview_scroll, 0);
-    }
-
-    #[test]
-    fn test_shift_i_does_nothing_without_marked_sessions() {
-        let mut state = make_state_with_session();
-        // session exists but none marked
-        let action = handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
-        assert_eq!(action, Action::Continue);
-        assert_eq!(state.input_mode, InputMode::Normal);
     }
 
     #[test]
@@ -1385,7 +1376,7 @@ mod tests {
 
     #[test]
     fn test_scroll_mode_shift_i_enters_broadcast_mode() {
-        let mut state = make_state_with_marked_sessions();
+        let mut state = make_state_with_session();
         state.input_mode = InputMode::Scroll;
         state.preview_scroll = 10;
         handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
@@ -1394,13 +1385,11 @@ mod tests {
     }
 
     #[test]
-    fn test_scroll_mode_shift_i_does_nothing_without_marks() {
-        let mut state = make_state_with_session();
+    fn test_scroll_mode_shift_i_does_nothing_without_sessions() {
+        let mut state = AppState::new(None);
         state.input_mode = InputMode::Scroll;
-        state.preview_scroll = 10;
         handle_key_event(&make_key_event(KeyCode::Char('I')), &mut state);
         assert_eq!(state.input_mode, InputMode::Scroll);
-        assert_eq!(state.preview_scroll, 10);
     }
 
     #[test]
