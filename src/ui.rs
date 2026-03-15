@@ -244,7 +244,7 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
         InputMode::Normal => {
             let next_label = layout_mode.next().short_label();
             let v_label = format!("v:{next_label}");
-            spans.push(Span::raw(format!(" | Nav:hjkl/1-9/t ScrollUp:C-u s:Switch Space:Mark {v_label} {input_keys} o:Claudeye ?:Help q:Quit")));
+            spans.push(Span::raw(format!(" | hjkl/1-9/t:Nav C-u:ScrollUp s:Switch(leave crmux) Space:Mark {v_label} {input_keys} o:Claudeye ?:Help q:Quit")));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -276,7 +276,7 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
                 "-- SCROLL --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(format!(" | Line:j/k HalfPage:C-u/C-d Top:gg Bottom:G {input_keys} Esc:Back")));
+            spans.push(Span::raw(format!(" | j/k:Line C-u/C-d:HalfPage gg:Top G:Bottom {input_keys} Esc:Back")));
         }
     }
     spans
@@ -664,15 +664,12 @@ Keybindings (Normal mode):
   h / ← / l / →  Switch project tab
   j / ↓          Move cursor down in session list
   k / ↑          Move cursor up in session list
-  Ctrl+u         Scroll preview up (half page)
-  Ctrl+d         Scroll preview down (half page)
-  gg             Scroll preview to top
-  G              Scroll preview to bottom
+  Ctrl+u         Scroll preview up (enter scroll mode)
   1-9            Select session by number
   t              Switch to previously selected session
   s              Switch to tmux pane
   Space          Mark session (for filtering and broadcast)
-  v              Cycle layout (MainV/Single/Grid/EvenH/EvenV/MainH)  // Update when LayoutMode::next() changes
+  v              Cycle layout (MainV/Single/Grid/EvenH/EvenV/MainH)
   i              Enter input mode (send keys to the selected session)
   I              Enter input mode (send keys to all marked sessions)
   e              Enter title mode (set a title for the session)
@@ -687,21 +684,16 @@ Keybindings (Scroll mode):
   Ctrl+d         Scroll preview down (half page)
   gg             Scroll preview to top
   G              Scroll preview to bottom (exit scroll mode)
-  i              Enter input mode (reset scroll)
-  I              Enter broadcast mode (reset scroll)
   Esc            Reset scroll and return to normal mode
 
 Keybindings (Input mode):
   Esc            Return to normal mode
-  Any other key  Forwarded to the tmux pane via send-keys
 
 Keybindings (Broadcast mode):
   Esc            Return to normal mode
-  Any other key  Forwarded to all marked panes via send-keys
 
 Keybindings (Title mode):
-  Esc            Save and return to normal mode
-  Backspace      Delete the last character";
+  Esc            Save and return to normal mode";
 
 /// Draw a centered help popup overlay.
 fn draw_help_popup(f: &mut ratatui::Frame, area: Rect, help_scroll: u16) {
@@ -1202,7 +1194,7 @@ mod tests {
     fn test_footer_normal_mode_contains_scroll_keys() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::Single, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("ScrollUp:C-u"), "Normal mode footer should contain 'ScrollUp:C-u', got: {text}");
+        assert!(text.contains("C-u:ScrollUp"), "Normal mode footer should contain 'C-u:ScrollUp', got: {text}");
     }
 
     // --- compute_grid tests ---
@@ -1436,7 +1428,7 @@ mod tests {
     fn test_footer_scroll_mode_contains_keybindings() {
         let spans = footer_spans(InputMode::Scroll, LayoutMode::Single, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("Line:j/k"), "Scroll mode footer should contain 'Line:j/k', got: {text}");
+        assert!(text.contains("j/k:Line"), "Scroll mode footer should contain 'j/k:Line', got: {text}");
         assert!(text.contains("Esc:Back"), "Scroll mode footer should contain 'Esc:Back', got: {text}");
     }
 
