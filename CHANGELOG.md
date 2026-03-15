@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+- `t` key to toggle back to previously selected session
+
+### Fixed
+- Fix `format_elapsed` to fixed 3-char width to prevent sidebar jitter
+
+### Changed
+- Broadcast target changed from marked sessions to current tab's filtered sessions
+- Unify footer to key:action format and clean up help text
+- Shorten footer by moving Preview keys to Scroll mode
+- Capture full tmux history on scroll instead of preview_height * 3
+
 ## 0.15.0
 
 ### Added
