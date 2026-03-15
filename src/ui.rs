@@ -239,11 +239,12 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
             Style::default().fg(Color::Yellow),
         ));
     }
+    let input_keys = "Input(i:Selected I:Marked)";
     match input_mode {
         InputMode::Normal => {
             let next_label = layout_mode.next().short_label();
             let v_label = format!("v:{next_label}");
-            spans.push(Span::raw(format!(" | hjkl:Nav 1-9:Select t:Last Preview(C-u:Up C-d:Down gg:Top G:Bottom) s:Switch Space:Mark {v_label} Input(i:Selected I:Marked) o:Claudeye ?:Help q:Quit")));
+            spans.push(Span::raw(format!(" | Nav:hjkl/1-9/t ScrollUp:C-u s:Switch Space:Mark {v_label} {input_keys} o:Claudeye ?:Help q:Quit")));
         }
         InputMode::Input => {
             spans.push(Span::raw(" "));
@@ -275,7 +276,7 @@ fn footer_spans(input_mode: InputMode, layout_mode: LayoutMode, update_available
                 "-- SCROLL --",
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            spans.push(Span::raw(" | j/k:Scroll C-u/C-d:Page gg:Top G:Bottom i:Input I:Broadcast Esc:Back"));
+            spans.push(Span::raw(format!(" | Line:j/k HalfPage:C-u/C-d Top:gg Bottom:G {input_keys} Esc:Back")));
         }
     }
     spans
@@ -1201,14 +1202,7 @@ mod tests {
     fn test_footer_normal_mode_contains_scroll_keys() {
         let spans = footer_spans(InputMode::Normal, LayoutMode::Single, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("C-u:Up C-d:Down"), "Normal mode footer should contain 'C-u:Up C-d:Down', got: {text}");
-    }
-
-    #[test]
-    fn test_footer_normal_mode_contains_g_bottom() {
-        let spans = footer_spans(InputMode::Normal, LayoutMode::Single, None);
-        let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("G:Bottom"), "Normal mode footer should contain 'G:Bottom', got: {text}");
+        assert!(text.contains("ScrollUp:C-u"), "Normal mode footer should contain 'ScrollUp:C-u', got: {text}");
     }
 
     // --- compute_grid tests ---
@@ -1442,7 +1436,7 @@ mod tests {
     fn test_footer_scroll_mode_contains_keybindings() {
         let spans = footer_spans(InputMode::Scroll, LayoutMode::Single, None);
         let text: String = spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(text.contains("j/k:Scroll"), "Scroll mode footer should contain 'j/k:Scroll', got: {text}");
+        assert!(text.contains("Line:j/k"), "Scroll mode footer should contain 'Line:j/k', got: {text}");
         assert!(text.contains("Esc:Back"), "Scroll mode footer should contain 'Esc:Back', got: {text}");
     }
 
