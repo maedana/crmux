@@ -153,9 +153,9 @@ fn format_title(name: &str, number: Option<usize>, title: Option<&String>, git_b
         _ => String::new(),
     };
     let branch_part = match (git_branch, worktree_name) {
-        (Some(b), Some(wt)) => format!(" ({b}/{wt})"),
+        (Some(b), Some(_)) => format!(" ([wt] {b})"),
         (Some(b), None) => format!(" ({b})"),
-        (None, Some(wt)) => format!(" ({wt})"),
+        (None, Some(wt)) => format!(" ([wt] {wt})"),
         (None, None) => String::new(),
     };
     format!("{number_part}{name}{branch_part}{suffix_part}")
@@ -1086,7 +1086,7 @@ mod tests {
         let worktree = "wt-1".to_string();
         assert_eq!(
             format_title("crmux", None, Some(&title), Some(&branch), Some(&worktree)),
-            "crmux (feature/wt-1) - dev"
+            "crmux ([wt] feature) - dev"
         );
     }
 
@@ -1095,7 +1095,7 @@ mod tests {
         let worktree = "wt-1".to_string();
         assert_eq!(
             format_title("crmux", None, None, None, Some(&worktree)),
-            "crmux (wt-1)"
+            "crmux ([wt] wt-1)"
         );
     }
 
