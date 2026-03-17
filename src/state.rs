@@ -504,6 +504,12 @@ impl AppState {
                 existing.pane_id.clone_from(&session.pane.id);
                 existing.tmux_session = extract_tmux_session(&session.pane.id);
                 existing.permission_mode = session.permission_mode.clone();
+                if existing.cwd != session.pane.cwd {
+                    existing.cwd = session.pane.cwd.clone();
+                    existing.worktree_name = session.pane.worktree_name.clone();
+                    existing.git_branch = resolve_git_branch(&session.pane.cwd);
+                    existing.git_diff = resolve_git_diff(&session.pane.cwd);
+                }
                 if existing.state != session.state {
                     state_changed.push(existing.pid);
                     if matches!(session.state, ClaudeState::Working) {
@@ -1058,6 +1064,41 @@ mod tests {
         assert_eq!(diff.added, vec![100]);
         assert_eq!(app.sessions.len(), 1);
         assert_eq!(app.sessions[0].pid, 100);
+    }
+
+    // --- cwd/worktree update on sync ---
+
+    #[test]
+    fn test_sync_updates_cwd_and_worktree_when_changed() {
+        let mut app = AppState::new(None);
+        let monitor1 = make_monitor(vec![
+            make_session(100, "%1", "project-a", ClaudeState::Idle),
+        ]);
+        app.sync_with_monitor(&monitor1);
+
+        assert_eq!(app.sessions[0].cwd, "/home/user/project-a");
+        assert_eq!(app.sessions[0].worktree_name, None);
+
+        // Simulate worktree move: cwd and worktree_name change
+        let monitor2 = make_monitor(vec![ClaudeSession {
+            pane: PaneInfo {
+                id: "%1".to_string(),
+                pid: 100,
+                cwd: "/home/user/project-a-worktree".to_string(),
+                project_name: "project-a".to_string(),
+                worktree_name: Some("feature-branch".to_string()),
+            },
+            state: ClaudeState::Idle,
+            permission_mode: PermissionMode::AskBeforeEdits,
+            state_changed_at: Instant::now(),
+        }]);
+        app.sync_with_monitor(&monitor2);
+
+        assert_eq!(app.sessions[0].cwd, "/home/user/project-a-worktree");
+        assert_eq!(
+            app.sessions[0].worktree_name,
+            Some("feature-branch".to_string())
+        );
     }
 
     // --- Selection operations ---
