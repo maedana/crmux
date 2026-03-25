@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.0
+
+### Fixed
+- Fix cwd, worktree_name, and git_branch not syncing when session moves to a worktree
+
+### Changed
+- Simplify branch display to `name/branch` format and distinguish worktree sessions with Cyan color
+
 ## 0.16.0
 
 ### Added
