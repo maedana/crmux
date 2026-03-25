@@ -140,25 +140,30 @@ pub const fn state_label(state: &ClaudeState) -> &'static str {
     }
 }
 
-/// Format a session/preview title: "{number.}{name} ({branch}/{worktree}) - {title}".
+/// Format a session/preview title: "{number.}{name}/{branch} - {title}".
 ///
 /// `number` is a 0-based index; displayed as 1-based. Indices >= `MAX_NUMBER_KEYS` are omitted.
-fn format_title(name: &str, number: Option<usize>, title: Option<&String>, git_branch: Option<&String>, worktree_name: Option<&String>) -> String {
+/// When `worktree_name` is present, the entire title is rendered in Cyan;
+/// otherwise `base_style` is used.
+fn format_title(name: &str, number: Option<usize>, title: Option<&String>, git_branch: Option<&String>, worktree_name: Option<&String>, base_style: Style) -> Line<'static> {
+    let is_worktree = worktree_name.is_some();
+    let style = if is_worktree { Style::default().fg(Color::Cyan) } else { base_style };
+
     let number_part = match number {
         Some(idx) if idx < crate::state::MAX_NUMBER_KEYS => format!("{}.", idx + 1),
         _ => String::new(),
+    };
+    let branch_part = match (git_branch, worktree_name) {
+        (Some(b), _) => format!("/{b}"),
+        (None, Some(wt)) => format!("/{wt}"),
+        (None, None) => String::new(),
     };
     let suffix_part = match title {
         Some(t) if !t.is_empty() => format!(" - {t}"),
         _ => String::new(),
     };
-    let branch_part = match (git_branch, worktree_name) {
-        (Some(b), Some(_)) => format!(" ([wt] {b})"),
-        (Some(b), None) => format!(" ({b})"),
-        (None, Some(wt)) => format!(" ([wt] {wt})"),
-        (None, None) => String::new(),
-    };
-    format!("{number_part}{name}{branch_part}{suffix_part}")
+    let text = format!("{number_part}{name}{branch_part}{suffix_part}");
+    Line::from(Span::styled(text, style))
 }
 
 /// Draw the full TUI: session list (left) + preview pane (right).
@@ -363,13 +368,16 @@ fn draw_preview_panes(
         let max_scroll = text_lines.saturating_sub(inner_height);
         let effective_scroll = preview_scroll.min(max_scroll);
         let scroll_y = max_scroll.saturating_sub(effective_scroll);
-        let mut title = format_title(&entry.name, Some(entry.index), entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
-        if preview_scroll > 0 {
-            title.push_str(" [SCROLL]");
-        }
         let color = state_color(&entry.state);
+        let mut title_line = format_title(&entry.name, Some(entry.index), entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref(), Style::default().fg(color));
+        let mut prefix_spans = vec![Span::styled(SELECTED_ICON.to_string(), Style::default().fg(color))];
+        prefix_spans.extend(title_line.spans);
+        if preview_scroll > 0 {
+            prefix_spans.push(Span::styled(" [SCROLL]", Style::default().fg(color)));
+        }
+        title_line = Line::from(prefix_spans);
         let mut block = Block::default()
-            .title(format!("{SELECTED_ICON}{title}"))
+            .title(title_line)
             .borders(Borders::ALL)
             .border_style(Style::default().fg(color));
         if let Some(info) = entry.git_diff.as_ref() {
@@ -521,8 +529,10 @@ fn render_preview_cell(
         text_lines.saturating_sub(inner_height)
     };
     let title_prefix = if is_focused { SELECTED_ICON } else { "" };
-    let title = format_title(&entry.name, Some(entry.index), entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref());
     let color = state_color(&entry.state);
+    let title_line = format_title(&entry.name, Some(entry.index), entry.title.as_ref(), entry.git_branch.as_ref(), entry.worktree_name.as_ref(), Style::default().fg(color));
+    let mut title_spans = vec![Span::styled(title_prefix.to_string(), Style::default().fg(color))];
+    title_spans.extend(title_line.spans);
     let elapsed_secs = entry.state_changed_at.elapsed().as_secs();
     let is_pulsing = should_pulse(&entry.state, elapsed_secs, entry.has_worked);
     let border_color = if is_pulsing && !is_focused {
@@ -531,7 +541,7 @@ fn render_preview_cell(
         color
     };
     let mut block = Block::default()
-        .title(Span::styled(format!("{title_prefix}{title}"), Style::default().fg(color)))
+        .title(Line::from(title_spans))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border_color));
     if let Some(info) = entry.git_diff.as_ref() {
@@ -804,11 +814,11 @@ fn draw_sessions_list(
         );
 
         let title_prefix = if is_selected { SELECTED_ICON } else { "" };
-        let card_title = format_title(&session.project_name, Some(idx), None, session.git_branch.as_ref(), session.worktree_name.as_ref());
-        let project_title = Line::from(Span::styled(
-            format!("{title_prefix}{card_title}"),
-            Style::default().fg(text_color).add_modifier(Modifier::BOLD),
-        ));
+        let base_title_style = Style::default().fg(text_color).add_modifier(Modifier::BOLD);
+        let card_title = format_title(&session.project_name, Some(idx), None, session.git_branch.as_ref(), session.worktree_name.as_ref(), base_title_style);
+        let mut title_spans = vec![Span::styled(title_prefix.to_string(), base_title_style)];
+        title_spans.extend(card_title.spans);
+        let project_title = Line::from(title_spans);
 
         let mark_span = Span::styled(mark_indicator, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD));
 
@@ -1052,70 +1062,90 @@ mod tests {
 
     // --- format_title tests ---
 
+    /// Helper: extract the raw text from a Line (concatenate all span contents).
+    fn line_text(line: &Line) -> String {
+        line.spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
     #[test]
     fn test_format_title_with_title() {
+        let base = Style::default().fg(Color::White);
         let title = "development".to_string();
-        assert_eq!(format_title("crmux", None, Some(&title), None, None), "crmux - development");
+        let line = format_title("crmux", None, Some(&title), None, None, base);
+        assert_eq!(line_text(&line), "crmux - development");
+        // No worktree → base style
+        assert_eq!(line.spans[0].style, base);
     }
 
     #[test]
     fn test_format_title_without_title() {
-        assert_eq!(format_title("crmux", None, None, None, None), "crmux");
+        let base = Style::default().fg(Color::White);
+        let line = format_title("crmux", None, None, None, None, base);
+        assert_eq!(line_text(&line), "crmux");
     }
 
     #[test]
     fn test_format_title_with_empty_title() {
+        let base = Style::default().fg(Color::White);
         let title = String::new();
-        assert_eq!(format_title("crmux", None, Some(&title), None, None), "crmux");
+        let line = format_title("crmux", None, Some(&title), None, None, base);
+        assert_eq!(line_text(&line), "crmux");
     }
 
     #[test]
     fn test_format_title_with_branch() {
+        let base = Style::default().fg(Color::White);
         let title = "dev".to_string();
         let branch = "main".to_string();
-        assert_eq!(
-            format_title("crmux", None, Some(&title), Some(&branch), None),
-            "crmux (main) - dev"
-        );
+        let line = format_title("crmux", None, Some(&title), Some(&branch), None, base);
+        assert_eq!(line_text(&line), "crmux/main - dev");
+        // No worktree → base style
+        assert_eq!(line.spans[0].style, base);
     }
 
     #[test]
     fn test_format_title_with_branch_and_worktree() {
+        let base = Style::default().fg(Color::White);
         let title = "dev".to_string();
         let branch = "feature".to_string();
         let worktree = "wt-1".to_string();
-        assert_eq!(
-            format_title("crmux", None, Some(&title), Some(&branch), Some(&worktree)),
-            "crmux ([wt] feature) - dev"
-        );
+        let line = format_title("crmux", None, Some(&title), Some(&branch), Some(&worktree), base);
+        assert_eq!(line_text(&line), "crmux/feature - dev");
+        // Worktree → cyan style
+        let cyan = Style::default().fg(Color::Cyan);
+        assert_eq!(line.spans[0].style, cyan);
     }
 
     #[test]
     fn test_format_title_with_worktree_only() {
+        let base = Style::default().fg(Color::White);
         let worktree = "wt-1".to_string();
-        assert_eq!(
-            format_title("crmux", None, None, None, Some(&worktree)),
-            "crmux ([wt] wt-1)"
-        );
+        let line = format_title("crmux", None, None, None, Some(&worktree), base);
+        assert_eq!(line_text(&line), "crmux/wt-1");
+        let cyan = Style::default().fg(Color::Cyan);
+        assert_eq!(line.spans[0].style, cyan);
     }
 
     #[test]
     fn test_format_title_with_number() {
-        assert_eq!(format_title("crmux", Some(0), None, None, None), "1.crmux");
+        let base = Style::default().fg(Color::White);
+        let line = format_title("crmux", Some(0), None, None, None, base);
+        assert_eq!(line_text(&line), "1.crmux");
     }
 
     #[test]
     fn test_format_title_with_number_and_branch() {
+        let base = Style::default().fg(Color::White);
         let branch = "main".to_string();
-        assert_eq!(
-            format_title("crmux", Some(2), None, Some(&branch), None),
-            "3.crmux (main)"
-        );
+        let line = format_title("crmux", Some(2), None, Some(&branch), None, base);
+        assert_eq!(line_text(&line), "3.crmux/main");
     }
 
     #[test]
     fn test_format_title_with_number_beyond_max() {
-        assert_eq!(format_title("crmux", Some(crate::state::MAX_NUMBER_KEYS), None, None, None), "crmux");
+        let base = Style::default().fg(Color::White);
+        let line = format_title("crmux", Some(crate::state::MAX_NUMBER_KEYS), None, None, None, base);
+        assert_eq!(line_text(&line), "crmux");
     }
 
     // --- footer_spans tests ---
