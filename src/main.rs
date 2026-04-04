@@ -34,6 +34,7 @@ For request methods (get-*), sends a request and prints the JSON response.
 Methods:
   send-text     Send text to a session pane (notification)
                 Params: {\"text\": \"...\", \"project\": \"...\", \"no_execute\": true, \"mode\": \"plan-mode|accept-edits\"}
+  get-pane-id   Get the pane ID where crmux is running (request)
   get-sessions  Get all sessions as JSON (request)
                 Params: {\"project\": \"...\"}
   get-plans     Get all accumulated plans as JSON (request)
@@ -56,6 +57,9 @@ Examples:
         /// Event type
         event: String,
     },
+
+    /// Switch to the tmux pane where crmux is running
+    Focus,
 
     /// Update crmux to the latest version
     Update {
@@ -80,6 +84,12 @@ fn main() {
         Some(Commands::Rpc { method }) => {
             if let Err(e) = handle_rpc(&method) {
                 eprintln!("crmux rpc error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Focus) => {
+            if let Err(e) = handle_focus() {
+                eprintln!("crmux focus error: {e}");
                 std::process::exit(1);
             }
         }
@@ -148,6 +158,20 @@ fn handle_update(force: bool, check: bool) {
             }
         }
     }
+}
+
+fn handle_focus() -> Result<(), Box<dyn std::error::Error>> {
+    let result = rpc::send_request("get_pane_id", &serde_json::json!({}))?;
+    let pane_id = result
+        .as_str()
+        .ok_or("crmux is not running or pane ID is unavailable")?;
+    let status = std::process::Command::new("tmux")
+        .args(["switch-client", "-t", pane_id])
+        .status()?;
+    if !status.success() {
+        return Err(format!("tmux switch-client failed (exit {})", status).into());
+    }
+    Ok(())
 }
 
 fn handle_rpc(event: &str) -> Result<(), Box<dyn std::error::Error>> {

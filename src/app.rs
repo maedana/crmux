@@ -348,6 +348,23 @@ pub fn run(initial_workspace: Option<String>) -> Result<(), Box<dyn std::error::
     let app_state = {
         let mut state = AppState::new(Some(own_pid));
         state.set_initial_workspace(initial_workspace);
+        // Resolve own pane ID from $TMUX_PANE for `crmux focus` RPC.
+        if let Ok(pane_id) = std::env::var("TMUX_PANE") {
+            let resolved = std::process::Command::new("tmux")
+                .args([
+                    "display-message",
+                    "-p",
+                    "-t",
+                    &pane_id,
+                    "#{session_name}:#{window_index}.#{pane_index}",
+                ])
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or(pane_id);
+            state.own_pane_id = Some(resolved);
+        }
         if let Ok(cwd) = std::env::current_dir() {
             let cwd_str = cwd.to_string_lossy();
             let project_name = cwd
@@ -367,6 +384,7 @@ pub fn run(initial_workspace: Option<String>) -> Result<(), Box<dyn std::error::
         match method {
             "get_sessions" => state.serialize_sessions(params),
             "get_plans" => state.serialize_plans(params),
+            "get_pane_id" => serde_json::json!(state.own_pane_id),
             _ => serde_json::Value::Null,
         }
     });

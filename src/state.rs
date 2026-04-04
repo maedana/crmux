@@ -419,6 +419,8 @@ pub struct AppState {
     pub update_available: Option<String>,
     /// Initial workspace to select on first tab rebuild (consumed after use).
     initial_workspace: Option<String>,
+    /// Pane ID where crmux itself is running (e.g. "main:0.1").
+    pub own_pane_id: Option<String>,
 }
 
 impl AppState {
@@ -445,6 +447,7 @@ impl AppState {
             scanned_project_dirs: std::collections::HashSet::new(),
             update_available: None,
             initial_workspace: None,
+            own_pane_id: None,
         }
     }
 
@@ -3368,6 +3371,21 @@ mod tests {
 
         // prev_selected_index should be None (was 2, but only 1 session now)
         assert_eq!(app.prev_selected_index, None);
+    }
+
+    // --- own_pane_id ---
+
+    #[test]
+    fn test_own_pane_id_default_none() {
+        let app = AppState::new(None);
+        assert_eq!(app.own_pane_id, None);
+    }
+
+    #[test]
+    fn test_own_pane_id_can_be_set() {
+        let mut app = AppState::new(None);
+        app.own_pane_id = Some("main:0.1".to_string());
+        assert_eq!(app.own_pane_id.as_deref(), Some("main:0.1"));
     }
 
 }
