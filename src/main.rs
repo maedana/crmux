@@ -216,8 +216,7 @@ fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::
     let claude_args = build_claude_args(args, stdin_content.as_deref());
     let cwd = env::current_dir()?.to_string_lossy().to_string();
 
-    // Always pass claude and args directly (no sh -c) so #{pane_current_command} = "claude"
-    // and tmux-claude-state can detect the session.
+    // Direct execution (no sh -c) so tmux-claude-state can detect the session.
     let mut tmux_args: Vec<String> = vec![
         "new-window".into(),
         "-d".into(),
@@ -231,9 +230,8 @@ fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::
     ];
     tmux_args.extend(claude_args);
 
-    let tmux_args_ref: Vec<&str> = tmux_args.iter().map(String::as_str).collect();
     let output = std::process::Command::new("tmux")
-        .args(&tmux_args_ref)
+        .args(&tmux_args)
         .output()?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().into());
