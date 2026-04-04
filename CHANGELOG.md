@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `crmux focus` subcommand to switch back to the tmux pane where crmux is running
+
 ## 0.17.0
 
 ### Fixed
