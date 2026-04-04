@@ -198,7 +198,7 @@ fn handle_focus() -> Result<(), Box<dyn std::error::Error>> {
         .args(["switch-client", "-t", pane_id])
         .status()?;
     if !status.success() {
-        return Err(format!("tmux switch-client failed (exit {})", status).into());
+        return Err(format!("tmux switch-client failed (exit {status})").into());
     }
     Ok(())
 }

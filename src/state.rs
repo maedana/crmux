@@ -78,8 +78,8 @@ fn resolve_git_diff(cwd: &str) -> Option<GitDiffInfo> {
     Some(info)
 }
 
-/// Extract the tmux session name from a pane_id (e.g., "dev:%1" → "dev").
-/// Returns empty string if pane_id has no ':' separator.
+/// Extract the tmux session name from a `pane_id` (e.g., "dev:%1" → "dev").
+/// Returns empty string if `pane_id` has no ':' separator.
 fn extract_tmux_session(pane_id: &str) -> String {
     match pane_id.split_once(':') {
         Some((session, _)) => session.to_string(),
@@ -160,7 +160,7 @@ pub struct ManagedSession {
     pub worktree_name: Option<String>,
     /// Git diff summary (staged/modified files and line changes).
     pub git_diff: Option<GitDiffInfo>,
-    /// Tmux session name this pane belongs to (extracted from pane_id).
+    /// Tmux session name this pane belongs to (extracted from `pane_id`).
     pub tmux_session: String,
 }
 
@@ -237,7 +237,6 @@ impl TabState {
                 return true;
             }
             self.selected_tab = 0; // fallback to All
-            false
         } else {
             let current = self.current_tab().clone();
             self.tabs = new_tabs;
@@ -246,8 +245,8 @@ impl TabState {
             } else {
                 self.selected_tab = 0; // fallback to All
             }
-            false
         }
+        false
     }
 
     /// Move to next tab (wraps around).
@@ -475,6 +474,7 @@ impl AppState {
     }
 
     /// Sync with the latest `MonitorState`, returning what changed.
+    #[allow(clippy::too_many_lines)]
     pub fn sync_with_monitor(&mut self, monitor: &MonitorState) -> SyncDiff {
         let mut added = Vec::new();
         let mut removed = Vec::new();
@@ -508,8 +508,8 @@ impl AppState {
                 existing.tmux_session = extract_tmux_session(&session.pane.id);
                 existing.permission_mode = session.permission_mode.clone();
                 if existing.cwd != session.pane.cwd {
-                    existing.cwd = session.pane.cwd.clone();
-                    existing.worktree_name = session.pane.worktree_name.clone();
+                    existing.cwd.clone_from(&session.pane.cwd);
+                    existing.worktree_name.clone_from(&session.pane.worktree_name);
                     existing.git_branch = resolve_git_branch(&session.pane.cwd);
                     existing.git_diff = resolve_git_diff(&session.pane.cwd);
                 }
