@@ -203,15 +203,18 @@ fn handle_focus() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn read_stdin_if_piped() -> Result<Option<String>, Box<dyn std::error::Error>> {
+    if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+        return Ok(None);
+    }
+    let mut buf = String::new();
+    std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+    Ok(Some(buf))
+}
+
 #[allow(clippy::literal_string_with_formatting_args)]
 fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let stdin_content = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-        None
-    } else {
-        let mut buf = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
-        Some(buf)
-    };
+    let stdin_content = read_stdin_if_piped()?;
 
     let claude_args = build_claude_args(args, stdin_content.as_deref());
     let cwd = env::current_dir()?.to_string_lossy().to_string();
@@ -238,7 +241,7 @@ fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::
     }
 
     let window_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    let status = std::process::Command::new("tmux")
+    let output = std::process::Command::new("tmux")
         .args([
             "resize-window",
             "-t",
@@ -246,9 +249,9 @@ fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::
             "-x",
             &width.to_string(),
         ])
-        .status()?;
-    if !status.success() {
-        return Err(format!("tmux resize-window failed (exit {status})").into());
+        .output()?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().into());
     }
 
     Ok(())
@@ -262,10 +265,7 @@ fn build_claude_args(args: &[String], stdin: Option<&str>) -> Vec<String> {
     if !args.is_empty() {
         return args.to_vec();
     }
-    match stdin {
-        Some(input) => vec![input.to_string()],
-        None => vec![],
-    }
+    stdin.map_or_else(Vec::new, |input| vec![input.to_string()])
 }
 
 fn handle_rpc(event: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -273,13 +273,10 @@ fn handle_rpc(event: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     // Request-type methods: send RPC request and print response
     if method.starts_with("get_") {
-        let params = if std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-            serde_json::json!({})
-        } else {
-            let mut input = String::new();
-            std::io::Read::read_to_string(&mut std::io::stdin(), &mut input)?;
-            serde_json::from_str(input.trim()).unwrap_or_else(|_| serde_json::json!({}))
-        };
+        let params = read_stdin_if_piped()?.map_or_else(
+            || serde_json::json!({}),
+            |input| serde_json::from_str(input.trim()).unwrap_or_else(|_| serde_json::json!({})),
+        );
         let result = rpc::send_request(&method, &params)?;
         println!("{}", serde_json::to_string_pretty(&result)?);
         return Ok(());
