@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.19.0
 
 ### Added
 - `crmux claude` subcommand to launch Claude Code in a new tmux window with configurable width (`-x`, default 100)
