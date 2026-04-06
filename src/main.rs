@@ -259,13 +259,13 @@ fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::
 
 /// Build the args to pass to the claude command.
 ///
-/// If explicit args are provided, stdin is ignored (args take priority).
-/// If no args and stdin is provided, stdin content becomes a positional argument.
+/// Combines explicit args with stdin content (appended as a positional argument).
 fn build_claude_args(args: &[String], stdin: Option<&str>) -> Vec<String> {
-    if !args.is_empty() {
-        return args.to_vec();
+    let mut result = args.to_vec();
+    if let Some(input) = stdin {
+        result.push(input.to_string());
     }
-    stdin.map_or_else(Vec::new, |input| vec![input.to_string()])
+    result
 }
 
 fn handle_rpc(event: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -338,9 +338,9 @@ mod tests {
     }
 
     #[test]
-    fn build_claude_args_stdin_ignored_when_args_present() {
+    fn build_claude_args_stdin_appended_when_args_present() {
         let args = vec!["--resume".to_string()];
         let result = build_claude_args(&args, Some("hello"));
-        assert_eq!(result, vec!["--resume"]);
+        assert_eq!(result, vec!["--resume", "hello"]);
     }
 }
