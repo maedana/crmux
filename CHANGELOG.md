@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.19.1
+
+### Fixed
+- Fix piped stdin being discarded when CLI args are present (e.g. `echo 'hi' | crmux claude --permission-mode=acceptEdits`)
+
 ## 0.19.0
 
 ### Added
