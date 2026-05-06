@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.0
+
+### Added
+- `-e KEY=VALUE` option for `crmux claude` to set environment variables in the tmux window (e.g. `crmux claude -e CLAUDE_MODEL=sonnet`)
+
 ## 0.19.1
 
 ### Fixed
