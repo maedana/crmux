@@ -66,18 +66,23 @@ Examples:
         trailing_var_arg = true,
         long_about = "\
 Launch a Claude Code session in a new tmux window with a specified width.
-All arguments except -x are passed through to the claude command.
+All arguments except -x and -e are passed through to the claude command.
 
 Examples:
   crmux claude
   crmux claude --resume
   crmux claude -x 120 -p \"fix the bug\"
+  crmux claude -e CLAUDE_MODEL=sonnet -e ANTHROPIC_API_KEY=sk-xxx
   echo 'hello' | crmux claude"
     )]
     Claude {
         /// Window width in columns (default: 100)
         #[arg(short = 'x', default_value = "100")]
         width: u16,
+
+        /// Set environment variable for the tmux window (KEY=VALUE, can be specified multiple times)
+        #[arg(short = 'e', value_parser = validate_env_var)]
+        envs: Vec<String>,
 
         /// Arguments to pass to the claude command
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
@@ -116,8 +121,8 @@ fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Commands::Claude { width, args }) => {
-            if let Err(e) = handle_claude(width, &args) {
+        Some(Commands::Claude { width, envs, args }) => {
+            if let Err(e) = handle_claude(width, &envs, &args) {
                 eprintln!("crmux claude error: {e}");
                 std::process::exit(1);
             }
@@ -213,25 +218,35 @@ fn read_stdin_if_piped() -> Result<Option<String>, Box<dyn std::error::Error>> {
 }
 
 #[allow(clippy::literal_string_with_formatting_args)]
-fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
-    let stdin_content = read_stdin_if_piped()?;
-
-    let claude_args = build_claude_args(args, stdin_content.as_deref());
-    let cwd = env::current_dir()?.to_string_lossy().to_string();
-
-    // Direct execution (no sh -c) so tmux-claude-state can detect the session.
-    let mut tmux_args: Vec<String> = vec![
+fn build_tmux_args(cwd: &str, envs: &[String], claude_args: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = vec![
         "new-window".into(),
         "-d".into(),
         "-c".into(),
-        cwd,
+        cwd.into(),
+    ];
+    for env in envs {
+        args.push("-e".into());
+        args.push(env.clone());
+    }
+    args.extend([
         "-P".into(),
         "-F".into(),
         "#{window_id}".into(),
         "--".into(),
         "claude".into(),
-    ];
-    tmux_args.extend(claude_args);
+    ]);
+    args.extend(claude_args.iter().cloned());
+    args
+}
+
+fn handle_claude(width: u16, envs: &[String], args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let stdin_content = read_stdin_if_piped()?;
+
+    let claude_args = build_claude_args(args, stdin_content.as_deref());
+    let cwd = env::current_dir()?.to_string_lossy().to_string();
+
+    let tmux_args = build_tmux_args(&cwd, envs, &claude_args);
 
     let output = std::process::Command::new("tmux")
         .args(&tmux_args)
@@ -255,6 +270,13 @@ fn handle_claude(width: u16, args: &[String]) -> Result<(), Box<dyn std::error::
     }
 
     Ok(())
+}
+
+fn validate_env_var(s: &str) -> Result<String, String> {
+    match s.split_once('=') {
+        Some((key, _)) if !key.is_empty() => Ok(s.to_string()),
+        _ => Err(format!("invalid environment variable format: '{s}' (expected KEY=VALUE)")),
+    }
 }
 
 /// Build the args to pass to the claude command.
@@ -342,5 +364,100 @@ mod tests {
         let args = vec!["--resume".to_string()];
         let result = build_claude_args(&args, Some("hello"));
         assert_eq!(result, vec!["--resume", "hello"]);
+    }
+
+    #[test]
+    fn validate_env_var_valid() {
+        assert!(validate_env_var("FOO=bar").is_ok());
+    }
+
+    #[test]
+    fn validate_env_var_empty_value() {
+        assert!(validate_env_var("FOO=").is_ok());
+    }
+
+    #[test]
+    fn validate_env_var_no_equals() {
+        assert!(validate_env_var("FOO").is_err());
+    }
+
+    #[test]
+    fn validate_env_var_empty_key() {
+        assert!(validate_env_var("=bar").is_err());
+    }
+
+    #[test]
+    fn build_tmux_args_no_envs() {
+        let result = build_tmux_args("/home/user/project", &[], &["--resume".to_string()]);
+        assert_eq!(
+            result,
+            vec![
+                "new-window", "-d", "-c", "/home/user/project",
+                "-P", "-F", "#{window_id}",
+                "--", "claude", "--resume"
+            ]
+        );
+    }
+
+    #[test]
+    fn build_tmux_args_with_envs() {
+        let envs = vec!["FOO=bar".to_string(), "BAZ=qux".to_string()];
+        let result = build_tmux_args("/home/user/project", &envs, &[]);
+        assert_eq!(
+            result,
+            vec![
+                "new-window", "-d", "-c", "/home/user/project",
+                "-e", "FOO=bar", "-e", "BAZ=qux",
+                "-P", "-F", "#{window_id}",
+                "--", "claude"
+            ]
+        );
+    }
+
+    #[test]
+    fn cli_claude_parses_env_option() {
+        let cli = Cli::try_parse_from(["crmux", "claude", "-e", "FOO=bar"]).unwrap();
+        match cli.command {
+            Some(Commands::Claude { envs, args, .. }) => {
+                assert_eq!(envs, vec!["FOO=bar"]);
+                assert!(args.is_empty());
+            }
+            _ => panic!("expected Claude command"),
+        }
+    }
+
+    #[test]
+    fn cli_claude_parses_multiple_env_options() {
+        let cli =
+            Cli::try_parse_from(["crmux", "claude", "-e", "A=1", "-e", "B=2", "--resume"])
+                .unwrap();
+        match cli.command {
+            Some(Commands::Claude { envs, args, .. }) => {
+                assert_eq!(envs, vec!["A=1", "B=2"]);
+                assert_eq!(args, vec!["--resume"]);
+            }
+            _ => panic!("expected Claude command"),
+        }
+    }
+
+    #[test]
+    fn cli_claude_rejects_invalid_env() {
+        let result = Cli::try_parse_from(["crmux", "claude", "-e", "NOEQUALS"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn build_tmux_args_with_envs_and_claude_args() {
+        let envs = vec!["X=1".to_string()];
+        let result = build_tmux_args("/tmp", &envs, &["-p".to_string(), "hello".to_string()]);
+        assert_eq!(
+            result,
+            vec![
+                "new-window", "-d", "-c", "/tmp",
+                "-e", "X=1",
+                "-P", "-F", "#{window_id}",
+                "--", "claude", "-p", "hello"
+            ]
+        );
     }
 }
