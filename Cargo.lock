@@ -334,7 +334,7 @@ dependencies = [
 
 [[package]]
 name = "crmux"
-version = "0.20.0"
+version = "0.20.1"
 dependencies = [
  "ansi-to-tui",
  "clap",
@@ -2657,9 +2657,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tmux-claude-state"
-version = "0.4.0"
+version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a17d0b6b8435104ba4a527d56a236de496f70247f6715fafd3b238ff62197b75"
+checksum = "01331a329989e68f709a7971621dd45ee9a3bf210d4ce9a4d8370206237c536e"
 dependencies = [
  "regex",
 ]

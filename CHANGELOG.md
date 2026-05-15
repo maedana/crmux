@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.1
+
+### Changed
+- Update tmux-claude-state from 0.4.0 to 0.4.1
+
 ## 0.20.0
 
 ### Added
