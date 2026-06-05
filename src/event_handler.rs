@@ -1,4 +1,4 @@
-use crossterm::event::{Event, KeyCode, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyModifiers, MouseEvent, MouseEventKind};
 
 #[cfg(not(test))]
 use std::process::{Command, Stdio};
@@ -39,7 +39,41 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
                 InputMode::Scroll => handle_scroll_mode(key.code, key.modifiers, state),
             }
         }
+        Event::Mouse(mouse) => handle_mouse_event(*mouse, state),
         Event::Paste(text) => handle_paste_event(text, state),
+        _ => Action::Continue,
+    }
+}
+
+/// Number of preview lines scrolled per mouse-wheel notch.
+const MOUSE_SCROLL_LINES: u16 = 3;
+
+/// Handle a mouse event. Wheel scrolling drives the selected session's preview,
+/// mirroring the Ctrl+u / Ctrl+d keyboard scrolling. Only active in Normal and
+/// Scroll modes so it does not interfere while typing in Input/Broadcast/Title.
+fn handle_mouse_event(mouse: MouseEvent, state: &mut AppState) -> Action {
+    if state.show_help {
+        return Action::Continue;
+    }
+    if !matches!(state.input_mode, InputMode::Normal | InputMode::Scroll) {
+        return Action::Continue;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            let max = state.preview_height.saturating_mul(3);
+            state.scroll_preview_up(MOUSE_SCROLL_LINES, max);
+            if state.preview_scroll > 0 {
+                state.input_mode = InputMode::Scroll;
+            }
+            Action::Continue
+        }
+        MouseEventKind::ScrollDown => {
+            state.scroll_preview_down(MOUSE_SCROLL_LINES);
+            if state.preview_scroll == 0 {
+                state.input_mode = InputMode::Normal;
+            }
+            Action::Continue
+        }
         _ => Action::Continue,
     }
 }
@@ -1101,6 +1135,72 @@ mod tests {
         let action = handle_key_event(&make_ctrl_key_event(KeyCode::Char('d')), &mut state);
         assert_eq!(action, Action::Continue);
         assert_eq!(state.preview_scroll, 5); // 20 - 15
+    }
+
+    fn make_scroll_event(kind: crossterm::event::MouseEventKind) -> Event {
+        Event::Mouse(crossterm::event::MouseEvent {
+            kind,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    #[test]
+    fn test_mouse_wheel_up_scrolls_preview_and_enters_scroll_mode() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollUp),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 3); // MOUSE_SCROLL_LINES
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_mouse_wheel_down_scrolls_preview() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.preview_scroll = 10;
+        state.input_mode = InputMode::Scroll;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollDown),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 7); // 10 - 3
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_mouse_wheel_down_exits_scroll_mode_at_bottom() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.preview_scroll = 2;
+        state.input_mode = InputMode::Scroll;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollDown),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_mouse_wheel_ignored_in_input_mode() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.input_mode = InputMode::Input;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollUp),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Input);
     }
 
     #[test]
