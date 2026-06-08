@@ -1,6 +1,6 @@
 [package]
 name = "crmux"
-version = "0.20.1"
+version = "0.20.2"
 edition = "2024"
 authors = ["maedana"]
 description = "A session multiplexer for Claude Code in tmux"
