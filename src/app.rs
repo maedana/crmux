@@ -276,9 +276,9 @@ fn capture_pane_with_scrollback(pane_id: &str) -> String {
 ///
 /// tmux `cursor_x`/`cursor_y` are relative to the visible pane window.
 /// The captured content (with `-S -`) includes scrollback, so we convert:
-///   content_row = total_content_lines - pane_height + cursor_y
-///   content_col = cursor_x
-#[allow(clippy::cast_possible_truncation)]
+///   `content_row = content_lines - pane_height + cursor_y`
+///   `content_col = cursor_x`
+#[allow(clippy::cast_possible_truncation, clippy::literal_string_with_formatting_args)]
 fn query_tmux_cursor(pane_id: &str, content_lines: usize) -> Option<(u16, u16)> {
     let output = Command::new("tmux")
         .args([
