@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.20.2
+
+### Fixed
+- Fix cursor not appearing in preview pane with Claude Code ≥2.1.164 (which stopped rendering reverse-video cursor)
+- Use tmux cursor position for accurate caret tracking (fixes cursor not moving when typing spaces)
+- Use block cursor instead of bar cursor in insert/broadcast mode
+
 ## 0.20.1
 
 ### Changed
