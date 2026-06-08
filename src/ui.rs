@@ -218,8 +218,7 @@ pub fn draw(
         && let Some((cx, cy)) = preview_cursor
     {
         f.set_cursor_position((cx, cy));
-        // Use bar cursor because block cursor double-inverts the reverse-video cell and becomes invisible
-        crossterm::execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::SteadyBar).ok();
+        crossterm::execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::SteadyBlock).ok();
     } else {
         // Reset cursor shape to default when returning to Normal mode
         crossterm::execute!(std::io::stdout(), crossterm::cursor::SetCursorStyle::DefaultUserShape).ok();
