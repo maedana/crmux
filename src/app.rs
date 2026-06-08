@@ -179,25 +179,34 @@ fn detect_cursor_by_reverse_video(lines: &[&str], start: usize) -> Option<(u16, 
 }
 
 /// Detect cursor position by finding a `❯ ` prompt pattern (bottom-up scan).
+///
+/// Claude Code renders the prompt as `❯` followed by either a regular space (U+0020)
+/// or a non-breaking space (U+00A0). Newer versions (≥2.1.x) dropped the reverse-video
+/// cursor block, so this fallback is the primary detection path.
 // Character width is at most 2, so usize→u16 truncation never occurs.
 #[allow(clippy::cast_possible_truncation)]
 fn detect_cursor_by_prompt(lines: &[&str], start: usize) -> Option<(u16, u16)> {
     for (i, line) in lines[start..].iter().enumerate().rev() {
         let row = start + i;
         let stripped = strip_ansi_for_prompt(line);
-        if let Some(pos) = stripped.find("❯ ") {
-            let after_prompt = &stripped[pos + "❯ ".len()..];
-            let prompt_col: u16 = stripped[..pos]
-                .chars()
-                .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16)
-                .sum();
-            let text_width: u16 = after_prompt
-                .chars()
-                .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16)
-                .sum();
-            #[allow(clippy::cast_possible_truncation)]
-            return Some((row as u16, prompt_col + 2 + text_width));
-        }
+        let (pos, pattern_len) = if let Some(p) = stripped.find("❯ ") {
+            (p, "❯ ".len())
+        } else if let Some(p) = stripped.find("❯\u{a0}") {
+            (p, "❯\u{a0}".len())
+        } else {
+            continue;
+        };
+        let after_prompt = &stripped[pos + pattern_len..];
+        let prompt_col: u16 = stripped[..pos]
+            .chars()
+            .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16)
+            .sum();
+        let text_width: u16 = after_prompt
+            .chars()
+            .map(|c| unicode_width::UnicodeWidthChar::width(c).unwrap_or(0) as u16)
+            .sum();
+        #[allow(clippy::cast_possible_truncation)]
+        return Some((row as u16, prompt_col + 2 + text_width));
     }
     None
 }
@@ -260,6 +269,39 @@ fn capture_pane_with_scrollback(pane_id: &str) -> String {
         Ok(o) => String::from_utf8_lossy(&o.stdout).into_owned(),
         Err(_) => String::new(),
     }
+}
+
+/// Query tmux for the cursor position and pane height, then convert to
+/// content-relative coordinates.
+///
+/// tmux `cursor_x`/`cursor_y` are relative to the visible pane window.
+/// The captured content (with `-S -`) includes scrollback, so we convert:
+///   content_row = total_content_lines - pane_height + cursor_y
+///   content_col = cursor_x
+#[allow(clippy::cast_possible_truncation)]
+fn query_tmux_cursor(pane_id: &str, content_lines: usize) -> Option<(u16, u16)> {
+    let output = Command::new("tmux")
+        .args([
+            "display-message", "-p", "-t", pane_id,
+            "#{cursor_x} #{cursor_y} #{pane_height}",
+        ])
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = text.trim().split(' ').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let cursor_x: usize = parts[0].parse().ok()?;
+    let cursor_y: usize = parts[1].parse().ok()?;
+    let pane_height: usize = parts[2].parse().ok()?;
+    let row = content_lines.saturating_sub(pane_height) + cursor_y;
+    Some((row as u16, cursor_x as u16))
 }
 
 /// Parse a version string like "claudeye 0.3.0\n" into (major, minor, patch).
@@ -503,7 +545,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                     // Show the selected session only
                     if let Some(session) = state.selected_session() {
                         let content = capture_pane_content(&session.pane_id, state.preview_scroll > 0);
-                        let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
+                        let content_lines = content.split('\n').count();
+                        let cursor_pos = query_tmux_cursor(&session.pane_id, content_lines)
+                            .or_else(|| detect_cursor_position(&content, CURSOR_SCAN_LINES));
                         state.preview_contents = vec![PreviewEntry {
                             name: session.project_name.clone(),
                             pane_id: session.pane_id.clone(),
@@ -532,7 +576,9 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                             let is_focused =
                                 selected_pane.as_deref() == Some(s.pane_id.as_str());
                             let content = capture_pane_content(&s.pane_id, is_focused && state.preview_scroll > 0);
-                            let cursor_pos = detect_cursor_position(&content, CURSOR_SCAN_LINES);
+                            let content_lines = content.split('\n').count();
+                            let cursor_pos = query_tmux_cursor(&s.pane_id, content_lines)
+                                .or_else(|| detect_cursor_position(&content, CURSOR_SCAN_LINES));
                             PreviewEntry {
                                 name: s.project_name.clone(),
                                 pane_id: s.pane_id.clone(),
@@ -845,6 +891,40 @@ mod tests {
     fn test_detect_cursor_reverse_video_preferred_over_prompt() {
         // Both reverse-video and prompt pattern present → reverse-video wins
         let input = "❯ hello\nab\x1b[7m \x1b[0m";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_prompt_nbsp_empty() {
+        // Claude Code ≥2.1.x uses NBSP (U+00A0) after ❯ instead of regular space
+        let input = "some output\n❯\u{a0}";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_prompt_nbsp_with_text() {
+        let input = "some output\n\x1b[39m❯\u{a0}hello";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 7)));
+    }
+
+    #[test]
+    fn test_detect_cursor_prompt_nbsp_with_ansi_color() {
+        // Realistic new Claude Code format: colored prompt with NBSP, no reverse-video
+        let input = "some output\n\x1b[38;5;246m❯\u{a0}\x1b[39m";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 2)));
+    }
+
+    #[test]
+    fn test_detect_cursor_prompt_nbsp_with_ghost_text() {
+        // Ghost text (dim) after prompt with NBSP
+        let input = "some output\n\x1b[39m❯\u{a0}\x1b[2mpush\x1b[0m";
+        assert_eq!(detect_cursor_position(input, 10), Some((1, 6)));
+    }
+
+    #[test]
+    fn test_detect_cursor_reverse_video_preferred_over_nbsp_prompt() {
+        // Reverse-video takes priority even when NBSP prompt is present
+        let input = "❯\u{a0}hello\nab\x1b[7m \x1b[0m";
         assert_eq!(detect_cursor_position(input, 10), Some((1, 2)));
     }
 
