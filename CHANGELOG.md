@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.20.3
+
+### Fixed
+- Fix colored background artifacts persisting when switching sessions
+
 ## 0.20.2
 
 ### Fixed
