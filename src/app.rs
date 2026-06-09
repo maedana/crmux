@@ -618,6 +618,11 @@ fn run_event_loop<B: ratatui::backend::Backend<Error = io::Error>>(
                 }
             }
 
+            if state.force_redraw {
+                terminal.clear()?;
+                state.force_redraw = false;
+            }
+
             // Draw TUI
             let update_available = state.update_available.clone();
             let frame = terminal.draw(|f| {

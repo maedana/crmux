@@ -58,6 +58,7 @@ fn switch_tab(state: &mut AppState, dir: Direction) {
         Direction::Prev => state.tab_state.select_prev_tab(),
     }
     state.preview_scroll = 0;
+    state.force_redraw = true;
     let filtered = state.filtered_sessions();
     state.selected_index = selected_pid
         .and_then(|pid| filtered.iter().position(|s| s.pid == pid))
@@ -216,6 +217,7 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
                 state.prev_selected_index = Some(state.selected_index);
                 state.selected_index = idx;
                 state.preview_scroll = 0;
+                state.force_redraw = true;
             }
             Action::Continue
         }

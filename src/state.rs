@@ -375,6 +375,7 @@ pub enum InputMode {
 }
 
 /// Application state for the sidebar.
+#[allow(clippy::struct_excessive_bools)]
 pub struct AppState {
     /// All managed sessions, ordered by discovery time.
     pub sessions: Vec<ManagedSession>,
@@ -416,6 +417,8 @@ pub struct AppState {
     pub scanned_project_dirs: std::collections::HashSet<String>,
     /// Latest version available for update (None = unchecked or already latest).
     pub update_available: Option<String>,
+    /// Force a full terminal redraw on the next frame (clears color artifacts).
+    pub force_redraw: bool,
     /// Initial workspace to select on first tab rebuild (consumed after use).
     initial_workspace: Option<String>,
     /// Pane ID where crmux itself is running (e.g. "main:0.1").
@@ -444,6 +447,7 @@ impl AppState {
             tab_state: TabState::new(),
             plans: Vec::new(),
             scanned_project_dirs: std::collections::HashSet::new(),
+            force_redraw: false,
             update_available: None,
             initial_workspace: None,
             own_pane_id: None,
@@ -609,6 +613,7 @@ impl AppState {
             self.selected_index = (self.selected_index + 1) % len;
         }
         self.preview_scroll = 0;
+        self.force_redraw = true;
     }
 
     /// Move selection up in the filtered list.
@@ -623,6 +628,7 @@ impl AppState {
             }
         }
         self.preview_scroll = 0;
+        self.force_redraw = true;
     }
 
     /// Switch to the previously selected session (swap selected and prev).
@@ -633,6 +639,7 @@ impl AppState {
                 self.prev_selected_index = Some(self.selected_index);
                 self.selected_index = prev;
                 self.preview_scroll = 0;
+                self.force_redraw = true;
             }
         }
     }
@@ -672,6 +679,7 @@ impl AppState {
     /// Cycle the layout mode: `MainVertical` → Single → Grid → `EvenHorizontal` → `EvenVertical` → `MainHorizontal` → `MainVertical`.
     pub const fn cycle_layout_mode(&mut self) {
         self.layout_mode = self.layout_mode.next();
+        self.force_redraw = true;
     }
 
     /// Toggle the mark on the currently selected session (PID-based).
