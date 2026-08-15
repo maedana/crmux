@@ -15,6 +15,21 @@ preview their output, and send prompts — all without leaving tmux.
 ## Demo
 ![gif][1]
 
+## Project status
+
+crmux is in **maintenance mode**. I've since moved to
+[herdr](https://github.com/herdrdev/herdr), where my own plugin
+[herdr-agents-preview](https://github.com/maedana/herdr-agents-preview) covers
+the multi-session preview crmux was built for — so I no longer use crmux day to
+day. If you're looking for something actively developed, start there.
+
+- Obvious bugs will still get fixed
+- No new features are planned
+- Compatibility with future Claude Code changes is not guaranteed
+
+Issues and PRs are welcome, but responses may be slow. Forks are encouraged if
+you want to take it further.
+
 ## Prerequisites
 
 - tmux
@@ -188,7 +203,10 @@ cp scripts/crmux-plan-search ~/.local/bin/
 crmux-plan-search <project>
 ```
 
-## Roadmap
+## Ideas (not planned)
+
+Things I once considered building. Kept here as notes for anyone forking the
+project — none of them are on a roadmap anymore.
 
 - Priority job queue: enqueue tasks with priority levels and auto-dispatch to idle sessions
 - Persistent usage/limit display: always show `/usage` info (remaining requests, reset time) in the sidebar
