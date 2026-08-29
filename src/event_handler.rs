@@ -1,4 +1,4 @@
-use crossterm::event::{Event, KeyCode, KeyModifiers};
+use crossterm::event::{Event, KeyCode, KeyModifiers, MouseEvent, MouseEventKind};
 
 #[cfg(not(test))]
 use std::process::{Command, Stdio};
@@ -39,7 +39,59 @@ pub fn handle_key_event(event: &Event, state: &mut AppState) -> Action {
                 InputMode::Scroll => handle_scroll_mode(key.code, key.modifiers, state),
             }
         }
+        Event::Mouse(mouse) => handle_mouse_event(*mouse, state),
         Event::Paste(text) => handle_paste_event(text, state),
+        _ => Action::Continue,
+    }
+}
+
+/// Number of preview lines scrolled per mouse-wheel notch.
+const MOUSE_SCROLL_LINES: u16 = 3;
+
+/// Maximum scroll offset for the focused session's preview.
+///
+/// Derived from the captured content length so scrolling reaches the full
+/// session history rather than a fixed number of screens. Scrollback capture is
+/// lazy (only when `preview_scroll > 0`), so before the first scroll the content
+/// is just the visible screen; the one-screen floor lets that first scroll move
+/// and trigger the full capture, after which the measured length takes over.
+fn effective_max_scroll(state: &AppState) -> u16 {
+    let inner_height = state.preview_height.saturating_sub(2); // pane borders
+    let content_lines = state
+        .selected_pane_id()
+        .and_then(|pane| state.preview_contents.iter().find(|e| e.pane_id == pane))
+        .map_or(0, |e| u16::try_from(e.content.lines().count()).unwrap_or(u16::MAX));
+    content_lines
+        .saturating_sub(inner_height)
+        .max(state.preview_height)
+}
+
+/// Handle a mouse event. Wheel scrolling drives the selected session's preview,
+/// mirroring the Ctrl+u / Ctrl+d keyboard scrolling. Only active in Normal and
+/// Scroll modes so it does not interfere while typing in Input/Broadcast/Title.
+fn handle_mouse_event(mouse: MouseEvent, state: &mut AppState) -> Action {
+    if state.show_help {
+        return Action::Continue;
+    }
+    if !matches!(state.input_mode, InputMode::Normal | InputMode::Scroll) {
+        return Action::Continue;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            let max = effective_max_scroll(state);
+            state.scroll_preview_up(MOUSE_SCROLL_LINES, max);
+            if state.preview_scroll > 0 {
+                state.input_mode = InputMode::Scroll;
+            }
+            Action::Continue
+        }
+        MouseEventKind::ScrollDown => {
+            state.scroll_preview_down(MOUSE_SCROLL_LINES);
+            if state.preview_scroll == 0 {
+                state.input_mode = InputMode::Normal;
+            }
+            Action::Continue
+        }
         _ => Action::Continue,
     }
 }
@@ -70,7 +122,7 @@ fn handle_normal_ctrl(code: KeyCode, state: &mut AppState) -> Action {
     match code {
         KeyCode::Char('u') => {
             let half = state.preview_height / 2;
-            let max = state.preview_height.saturating_mul(3);
+            let max = effective_max_scroll(state);
             state.scroll_preview_up(half, max);
             if state.preview_scroll > 0 {
                 state.input_mode = InputMode::Scroll;
@@ -120,7 +172,7 @@ fn handle_normal_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
         state.pending_g = false;
         return match code {
             KeyCode::Char('g') => {
-                let max = state.preview_height.saturating_mul(3);
+                let max = effective_max_scroll(state);
                 state.preview_scroll = max;
                 if state.preview_scroll > 0 {
                     state.input_mode = InputMode::Scroll;
@@ -302,7 +354,7 @@ fn handle_scroll_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
         state.pending_g = false;
         return match code {
             KeyCode::Char('g') => {
-                let max = state.preview_height.saturating_mul(3);
+                let max = effective_max_scroll(state);
                 state.preview_scroll = max;
                 Action::Continue
             }
@@ -315,7 +367,7 @@ fn handle_scroll_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
         return match code {
             KeyCode::Char('u') => {
                 let half = state.preview_height / 2;
-                let max = state.preview_height.saturating_mul(3);
+                let max = effective_max_scroll(state);
                 state.scroll_preview_up(half, max);
                 Action::Continue
             }
@@ -340,7 +392,7 @@ fn handle_scroll_mode(code: KeyCode, modifiers: KeyModifiers, state: &mut AppSta
             Action::Continue
         }
         KeyCode::Char('k') | KeyCode::Up => {
-            let max = state.preview_height.saturating_mul(3);
+            let max = effective_max_scroll(state);
             state.scroll_preview_up(1, max);
             Action::Continue
         }
@@ -1105,6 +1157,126 @@ mod tests {
         assert_eq!(state.preview_scroll, 5); // 20 - 15
     }
 
+    fn make_scroll_event(kind: crossterm::event::MouseEventKind) -> Event {
+        Event::Mouse(crossterm::event::MouseEvent {
+            kind,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        })
+    }
+
+    #[test]
+    fn test_mouse_wheel_up_scrolls_preview_and_enters_scroll_mode() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollUp),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 3); // MOUSE_SCROLL_LINES
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_mouse_wheel_down_scrolls_preview() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.preview_scroll = 10;
+        state.input_mode = InputMode::Scroll;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollDown),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 7); // 10 - 3
+        assert_eq!(state.input_mode, InputMode::Scroll);
+    }
+
+    #[test]
+    fn test_mouse_wheel_down_exits_scroll_mode_at_bottom() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.preview_scroll = 2;
+        state.input_mode = InputMode::Scroll;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollDown),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Normal);
+    }
+
+    #[test]
+    fn test_mouse_wheel_ignored_in_input_mode() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.input_mode = InputMode::Input;
+        let action = handle_key_event(
+            &make_scroll_event(crossterm::event::MouseEventKind::ScrollUp),
+            &mut state,
+        );
+        assert_eq!(action, Action::Continue);
+        assert_eq!(state.preview_scroll, 0);
+        assert_eq!(state.input_mode, InputMode::Input);
+    }
+
+    fn preview_entry(pane_id: &str, content: &str) -> crate::state::PreviewEntry {
+        crate::state::PreviewEntry {
+            name: "p".to_string(),
+            pane_id: pane_id.to_string(),
+            index: 0,
+            title: None,
+            git_branch: None,
+            worktree_name: None,
+            content: content.to_string(),
+            cursor_pos: None,
+            git_diff: None,
+            state: ClaudeState::Idle,
+            has_worked: false,
+            state_changed_at: Instant::now(),
+        }
+    }
+
+    fn many_lines(n: usize) -> String {
+        (0..n).map(|i| format!("line {i}")).collect::<Vec<_>>().join("\n")
+    }
+
+    #[test]
+    fn test_effective_max_scroll_uses_content_length() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        state.preview_contents = vec![preview_entry("%1", &many_lines(200))];
+        // 200 content lines minus (30 - 2) visible inner rows.
+        assert_eq!(effective_max_scroll(&state), 172);
+    }
+
+    #[test]
+    fn test_effective_max_scroll_floors_at_one_screen() {
+        let mut state = make_state_with_session();
+        state.preview_height = 30;
+        // Short content (visible-only capture, before scrollback loads) floors at
+        // one screen so the first scroll can move and trigger the full capture.
+        state.preview_contents = vec![preview_entry("%1", &many_lines(5))];
+        assert_eq!(effective_max_scroll(&state), 30);
+    }
+
+    #[test]
+    fn test_mouse_wheel_scrolls_past_old_three_screen_cap() {
+        let mut state = make_state_with_session();
+        state.preview_height = 10; // old cap would have been 10 * 3 = 30
+        state.preview_contents = vec![preview_entry("%1", &many_lines(500))];
+        for _ in 0..20 {
+            handle_key_event(
+                &make_scroll_event(crossterm::event::MouseEventKind::ScrollUp),
+                &mut state,
+            );
+        }
+        assert_eq!(state.preview_scroll, 60); // 20 notches * 3 lines, well past 30
+    }
+
     #[test]
     fn test_shift_g_resets_scroll() {
         let mut state = make_state_with_session();
@@ -1118,11 +1290,12 @@ mod tests {
     fn test_ctrl_u_clamps_to_max() {
         let mut state = make_state_with_session();
         state.preview_height = 30;
-        // Scroll up repeatedly; should clamp to preview_height * 3
+        state.preview_contents = vec![preview_entry("%1", &many_lines(100))];
+        // Scroll up repeatedly; clamps to the content length: 100 - (30 - 2).
         for _ in 0..10 {
             handle_key_event(&make_ctrl_key_event(KeyCode::Char('u')), &mut state);
         }
-        assert_eq!(state.preview_scroll, 90); // preview_height * 3
+        assert_eq!(state.preview_scroll, 72);
     }
 
     #[test]
@@ -1148,12 +1321,13 @@ mod tests {
     fn test_gg_scrolls_to_top() {
         let mut state = make_state_with_session();
         state.preview_height = 30;
+        state.preview_contents = vec![preview_entry("%1", &many_lines(100))];
         // First g
         handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
-        // Second g → scroll to top
+        // Second g → scroll to top (content length: 100 - (30 - 2)).
         let action = handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
         assert_eq!(action, Action::Continue);
-        assert_eq!(state.preview_scroll, 90); // preview_height * 3
+        assert_eq!(state.preview_scroll, 72);
         assert!(!state.pending_g);
     }
 
@@ -1400,9 +1574,10 @@ mod tests {
         state.input_mode = InputMode::Scroll;
         state.preview_height = 30;
         state.preview_scroll = 10;
+        state.preview_contents = vec![preview_entry("%1", &many_lines(100))];
         handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
         handle_key_event(&make_key_event(KeyCode::Char('g')), &mut state);
-        assert_eq!(state.preview_scroll, 90); // preview_height * 3
+        assert_eq!(state.preview_scroll, 72); // content length: 100 - (30 - 2)
         assert_eq!(state.input_mode, InputMode::Scroll);
     }
 
